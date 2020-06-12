@@ -2,13 +2,9 @@
 
 #include <array>
 #include "position.hpp"
-#include "designations.hpp"
-#include <cereal/types/polymorphic.hpp>
-#include <cereal/types/vector.hpp>
-#include <cereal/types/array.hpp>
-#include "../bengine/ecs_impl.hpp"
-#include "../bengine/path_finding.hpp"
 #include "../components/helpers/reaction_task_t.hpp"
+#include "../components/helpers/building_designation_t.hpp"
+#include "../systems/helpers/pathfinding.hpp"
 
 constexpr int NUMBER_OF_JOB_CATEGORIES = 10;
 constexpr int JOB_MINING = 0;
@@ -55,20 +51,10 @@ struct settler_ai_t {
 	std::size_t current_tool = 0;
 
 	// Non-persistent
-	std::shared_ptr<bengine::navigation_path<position_t>> current_path;
+	std::shared_ptr<navigation_path_t> current_path;
 	std::size_t targeted_hostile = 0;
 
 	settler_ai_t() {
 		std::fill(permitted_work.begin(), permitted_work.end(), true);
-	}
-
-	template<class Archive>
-	void serialize(Archive & archive)
-	{
-		archive( permitted_work, shift_id, job_type_major, job_type_minor, target_x,
-			target_y, target_z, target_id, has_building_target, building_target,
-            has_reaction_target, reaction_target, current_tool); // serialize things by passing them to the archive
-	}
+	}	
 };
-
-CEREAL_REGISTER_TYPE(bengine::impl::component_store_t<bengine::impl::component_t<settler_ai_t>>)

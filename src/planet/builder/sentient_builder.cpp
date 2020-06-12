@@ -4,39 +4,25 @@
 #include "../../raws/health_factory.hpp"
 #include "../../raws/items.hpp"
 #include "../../raws/defs/item_def_t.hpp"
-#include "../../components/logger.hpp"
 #include "../../bengine/string_utils.hpp"
-#include "../../components/sentient_ai.hpp"
-#include "../../components/game_stats.hpp"
-#include "../../components/items/item.hpp"
-#include "../../components/renderable.hpp"
-#include "../../components/viewshed.hpp"
-#include "../../components/initiative.hpp"
-#include "../../components/ai_tags/ai_mode_idle.hpp"
-#include "../../components/natural_attacks_t.hpp"
-#include "../../components/renderable_composite.hpp"
 #include "../region/region.hpp"
 #include "../../raws/defs/civilization_t.hpp"
 #include "../../raws/defs/raw_creature_t.hpp"
 #include "../../raws/creatures.hpp"
-#include "../../components/riding_t.hpp"
-#include "../../components/items/item_carried.hpp"
-#include "../../components/claimed_t.hpp"
 #include "../../bengine/telemetry.hpp"
-#include "../../components/items/item_quality.hpp"
-#include "../../components/items/item_wear.hpp"
+#include "../../bengine/geometry.hpp"
 
-int sentient_get_stat_mod(const std::string stat, const raw_species_t * species) {
+static int sentient_get_stat_mod(const std::string &stat, const raw_species_t * species) noexcept {
     if (!species) return 0;
-    int mod = 0;
-    auto finder = species->stat_mods.find(stat);
+    auto mod = 0;
+    const auto finder = species->stat_mods.find(stat);
     if (finder != species->stat_mods.end()) mod = finder->second;
     return mod;
 }
 
-void create_sentient(planet_t &planet, bengine::random_number_generator &rng, std::tuple<int,int,int> &start,
-                     const civ_unit_sentient_t &unit, const std::string species_tag, const std::size_t civ_id,
-                     bool announce)
+static void create_sentient(planet_t &planet, bengine::random_number_generator &rng, std::tuple<int,int,int> &start,
+                     const civ_unit_sentient_t &unit, const std::string &species_tag, const std::size_t civ_id,
+                     bool announce) noexcept
 {
 	call_home("Spawn", "Sentient", species_tag);
 
@@ -56,7 +42,7 @@ void create_sentient(planet_t &planet, bengine::random_number_generator &rng, st
         species.gender = MALE;
     }
     const auto species_finder = get_species_def(species_tag);
-    if (species_finder == nullptr) std::cout << "WARNING: Unable to find info for " << species_tag << "\n";
+    if (species_finder == nullptr) glog(log_target::GAME, log_severity::warning, "Unable to find info for {0}", species_tag);
     if (species_finder->render_composite) {
         // We need to define skin color, hair
         species.base_male_glyph = species_finder->base_male_glyph;
@@ -79,16 +65,16 @@ void create_sentient(planet_t &planet, bengine::random_number_generator &rng, st
     stats.age = species_finder->child_age+1;
 
     // Hit points
-    int base_hp = 10;
-    for (int i=0; i<unit.base_level; ++i) {
+    auto base_hp = 10;
+    for (auto i=0; i<unit.base_level; ++i) {
         base_hp += rng.roll_dice(unit.hp_n, unit.hp_dice) + unit.hp_mod;
     }
-    health_t health = create_health_component_sentient(species_finder, base_hp);
+	auto health = create_health_component_sentient(species_finder, base_hp);
 
     // Natural Attacks
     natural_attacks_t attacks;
     for (const auto &na : unit.natural_attacks) {
-        attacks.attacks.push_back( natural_attack_t{ na } );
+        attacks.attacks.emplace_back( natural_attack_t{ na } );
     }
 
     // AI
@@ -121,40 +107,40 @@ void create_sentient(planet_t &planet, bengine::random_number_generator &rng, st
     // Starting Equipment
     for (auto item : unit.equipment.starting_clothes) {
         if (std::get<0>(item) == 0 || (std::get<0>(item)==1 && species.gender == MALE) || (std::get<0>(item)==2 && species.gender == FEMALE) ) {
-            std::string item_name = std::get<2>(item);
-            std::string slot_name = std::get<1>(item);
+			const auto item_name = std::get<2>(item);
+			const auto slot_name = std::get<1>(item);
             auto cs = split(item_name, '/');
-            item_location_t position = INVENTORY;
+			auto position = INVENTORY;
             if (slot_name == "head") position = HEAD;
             if (slot_name == "torso") position = TORSO;
             if (slot_name == "legs") position = LEGS;
             if (slot_name == "shoes") position = FEET;
-            std::cout << "Created " << item_name << "\n";
+            //std::cout << "Created " << item_name << "\n";
 			spawn_item_carried(sentient->id, cs[0], get_material_by_tag(cs[1]), position, item_quality::AVERAGE, 100, 0, planet.civs.civs[civ_id].name);
         }
     }
 
-    if (unit.equipment.melee != "") {
+    if (!unit.equipment.melee.empty()) {
         auto cs = split(unit.equipment.melee, '/');
-        const std::string item_name = cs[0];
+        const auto item_name = cs[0];
 		spawn_item_carried(sentient->id, cs[0], get_material_by_tag(cs[1]), EQUIP_MELEE, 3, 100, 0, planet.civs.civs[civ_id].name);
     }
-    if (unit.equipment.ranged != "") {
+    if (!unit.equipment.ranged.empty()) {
         auto cs = split(unit.equipment.ranged, '/');
-        const std::string item_name = cs[0];
+        const auto item_name = cs[0];
 		spawn_item_carried(sentient->id, cs[0], get_material_by_tag(cs[1]), EQUIP_RANGED, 3, 100, 0, planet.civs.civs[civ_id].name);
 	}
-    if (unit.equipment.ammo != "") {
+    if (!unit.equipment.ammo.empty()) {
         auto cs = split(unit.equipment.ammo, '/');
-        const std::string item_name = cs[0];
+        const auto item_name = cs[0];
 		spawn_item_carried(sentient->id, cs[0], get_material_by_tag(cs[1]), EQUIP_AMMO, 3, 100, 0, planet.civs.civs[civ_id].name);
     }
-    if (unit.equipment.mount != "") {
-        std::cout << "Spawning a mount: " << unit.equipment.mount << "\n";
+    if (!unit.equipment.mount.empty()) {
+        //std::cout << "Spawning a mount: " << unit.equipment.mount << "\n";
         // Spawn a mount at the same location, with a riding_t tag on the sentient
-        auto critter_def = get_creature_def( unit.equipment.mount );
+        const auto critter_def = get_creature_def( unit.equipment.mount );
 
-        bool male = true;
+		auto male = true;
         if (rng.roll_dice(1,4)<=2) male = false;
         name_t name{};
         name.first_name = critter_def->name;
@@ -167,16 +153,16 @@ void create_sentient(planet_t &planet, bengine::random_number_generator &rng, st
         game_stats_t stats;
         stats.profession_tag = "Mount";
         stats.age = 1;
-        for (auto it=critter_def->stats.begin(); it!=critter_def->stats.end(); ++it) {
-            if (it->first == "str") stats.strength = it->second;
-            if (it->first == "dex") stats.dexterity = it->second;
-            if (it->first == "con") stats.constitution = it->second;
-            if (it->first == "int") stats.intelligence = it->second;
-            if (it->first == "wis") stats.wisdom = it->second;
-            if (it->first == "cha") stats.charisma = it->second;
+		for (auto &it : critter_def->stats) {
+            if (it.first == "str") stats.strength = it.second;
+            if (it.first == "dex") stats.dexterity = it.second;
+            if (it.first == "con") stats.constitution = it.second;
+            if (it.first == "int") stats.intelligence = it.second;
+            if (it.first == "wis") stats.wisdom = it.second;
+            if (it.first == "cha") stats.charisma = it.second;
         }
 
-        auto mount = bengine::create_entity()
+        const auto mount = bengine::create_entity()
                 ->assign(position_t{x,y,z})
                 ->assign(renderable_t{critter_def->glyph, critter_def->glyph_ascii, critter_def->fg, bengine::color_t{0.0f, 0.0f, 0.0f}, critter_def->vox})
                 ->assign(std::move(name))
@@ -203,13 +189,13 @@ void create_sentient(planet_t &planet, bengine::random_number_generator &rng, st
 void create_sentient_unit(planet_t &planet, bengine::random_number_generator &rng, std::size_t civ_id,
                           const std::string &unit_tag,
                           std::vector<std::tuple<int,int,int>> &starting_points, int &spawn_counter,
-                          const bool announce, int crash_x, int crash_y, int crash_z)
+                          const bool announce, int crash_x, int crash_y, int crash_z) noexcept
 {
     const std::string species_tag = planet.civs.civs[civ_id].species_tag;
     auto civ_f = get_civ_def(species_tag);
     auto unit_f = civ_f->units.find(unit_tag);
     if (unit_f == civ_f->units.end()) {
-        std::cout << "Error loading " << unit_tag << "\n";
+		glog(log_target::GAME, log_severity::error, "Error loading unit: {0}", unit_tag);
         return;
     }
 

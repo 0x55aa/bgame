@@ -36,7 +36,7 @@ namespace render {
         }
     }
 
-    void render_test_quad(unsigned int &texture) {
+    void render_fullscreen_quad(unsigned int &texture) {
         using namespace testimpl;
         check_quad();
 
@@ -48,6 +48,15 @@ namespace render {
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glCheckError();
     }
+
+	void render_fullscreen_quad_untextured() {
+		using namespace testimpl;
+		check_quad();
+
+		// Render the depth buffer to the screen
+		glBindVertexArray(quadVAO);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+	}
 
     void render_buffer_quad() {
         using namespace testimpl;

@@ -1,25 +1,19 @@
+#include "stdafx.h"
 #include "ai_work_farm_clear.hpp"
 #include "templated_work_steps_t.hpp"
-#include "../../../components/farming/designated_farmer.hpp"
 #include "../../../global_assets/farming_designations.hpp"
-#include "../../../components/ai_tags/ai_tag_work_farm_clear.hpp"
-#include "../../../components/claimed_t.hpp"
-#include "../../../components/item_tags/item_farming.hpp"
 #include "../../helpers/inventory_assistant.hpp"
 #include "../../damage/damage_system.hpp"
 #include "../../../render_engine/chunks/chunks.hpp"
 #include "../../../raws/materials.hpp"
 #include "../../../raws/defs/material_def_t.hpp"
 #include "../../../bengine/telemetry.hpp"
-#include "../../../components/name.hpp"
-#include "../../../components/item_tags/item_seed_t.hpp"
 #include "../../../raws/plants.hpp"
 #include "../../../raws/defs/plant_t.hpp"
 #include "../../../raws/items.hpp"
 #include "../../../raws/defs/item_def_t.hpp"
 #include "../../../raws/raws.hpp"
-
-#pragma once
+#include "../../helpers/targeted_flow_map.hpp"
 
 namespace systems {
 	namespace ai_farm_clear {
@@ -121,7 +115,7 @@ namespace systems {
 
 			auto farm_finder = farm_designations->farms.find(idx);
 			if (farm_finder == farm_designations->farms.end() || farm_finder->second.state != farm_steps::CLEAR) {
-				std::cout << "Bailing out - not relevant anymore!";
+				//std::cout << "Bailing out - not relevant anymore!";
 				work.cancel_work_tag(e);
 				return;
 			}
@@ -161,7 +155,7 @@ namespace systems {
 				chunks::mark_chunk_dirty_by_tileidx(idx);
 
 				auto tm = get_material(region::material(idx));
-				if (tm && (tm->spawn_type == soil || tm->spawn_type == sand)) {
+				if (tm && (tm->spawn_type == SOIL || tm->spawn_type == SAND)) {
 					farm_finder->second.state = farm_steps::PLANT_SEEDS;
 				}
 				else {

@@ -1,5 +1,5 @@
+#include "stdafx.h"
 #include "ai_status_effects.hpp"
-#include "../../components/wildlife_group.hpp"
 #include "../../global_assets/game_planet.hpp"
 #include "../../raws/biomes.hpp"
 #include "../../raws/defs/biome_type_t.hpp"
@@ -7,14 +7,6 @@
 #include "../../raws/creatures.hpp"
 #include "../../raws/defs/raw_creature_t.hpp"
 #include "../../global_assets/rng.hpp"
-#include "../../components/renderable.hpp"
-#include "../../components/name.hpp"
-#include "../../components/health.hpp"
-#include "../../components/game_stats.hpp"
-#include "../../components/grazer_ai.hpp"
-#include "../../components/viewshed.hpp"
-#include "../../components/initiative.hpp"
-#include "../../components/ai_tags/ai_mode_idle.hpp"
 #include "../../raws/health_factory.hpp"
 #include "../../bengine/telemetry.hpp"
 #include "distance_map_system.hpp"
@@ -104,22 +96,22 @@ namespace systems {
 						}
 
 						if (critter_def.ai == creature_grazer) {
-							create_entity()
-								->assign(std::move(pos))
-								->assign(std::move(render))
-								->assign(std::move(name))
-								->assign(std::move(species))
-								->assign(create_health_component_creature(critter_def.tag))
-								->assign(grazer_ai{})
-								->assign(std::move(stats))
-								->assign(viewshed_t(6, false, false))
-								->assign(wildlife_group{ i })
-								->assign(initiative_t{})
-								->assign(ai_mode_idle_t{});
-							std::cout << "Spawning " << critter_tag << " on edge " << edge << "\n";
+							auto new_entity = create_entity();
+							std::cout << new_entity->id << "\n";
+							new_entity->assign(std::move(pos));
+							new_entity->assign(std::move(render));
+							new_entity->assign(std::move(name));
+							new_entity->assign(std::move(species));
+							new_entity->assign(create_health_component_creature(critter_def.tag));
+							new_entity->assign(grazer_ai{});
+							new_entity->assign(std::move(stats));
+							new_entity->assign(viewshed_t(6, false, false));
+							new_entity->assign(wildlife_group{ i });
+							new_entity->assign(initiative_t{});
+							new_entity->assign(ai_mode_idle_t{});
+							//std::cout << "Spawning " << critter_tag << " on edge " << edge << "\n";
 							call_home("Spawn", "Creature", critter_tag);
 						}
-						distance_map::refresh_hunting_map();
 					}
 				}
 			}

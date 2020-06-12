@@ -1,18 +1,14 @@
+#include "stdafx.h"
 #include "ai_work_lumberjack.hpp"
 #include "templated_work_steps_t.hpp"
 #include "../../../planet/region/region.hpp"
 #include "../distance_map_system.hpp"
 #include "../../../global_assets/game_designations.hpp"
 #include "../../../bengine/geometry.hpp"
-#include "../../../components/ai_tags/ai_tag_work_lumberjack.hpp"
 #include "../../../bengine/telemetry.hpp"
 #include "../../damage/damage_system.hpp"
 #include "../../../render_engine/chunks/chunks.hpp"
 #include "../../gui/particle_system.hpp"
-#include "../../../components/item_tags/item_chopping_t.hpp"
-#include "../../../components/name.hpp"
-#include "../../../components/designated_lumberjack.hpp"
-#include "../../../components/claimed_t.hpp"
 #include "../../helpers/inventory_assistant.hpp"
 #include "../../../raws/raws.hpp"
 #include "../../../raws/materials.hpp"
@@ -223,7 +219,7 @@ namespace systems {
 				// Spawn wooden logs
 				number_of_logs = (number_of_logs / 20) + 1;
 				for (int i = 0; i<number_of_logs; ++i) {
-					std::cout << "Spawning wood\n";
+					//std::cout << "Spawning wood\n";
 					std::string cname = "";
 					auto name = e.component<name_t>();
 					if (name) cname = name->first_name + std::string(" ") + name->last_name;
@@ -239,6 +235,7 @@ namespace systems {
 						}
 					}
 				}
+				distance_map::refresh_all_distance_maps();
 
 				// Remove the tree from the designations list
 				designations->chopping.erase(lj.target_tree);

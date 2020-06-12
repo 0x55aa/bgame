@@ -1,41 +1,116 @@
 #include "voxel_model.hpp"
-#include <unordered_map>
-#include <assert.h>
 #include <map>
+#include "../../global_assets/shader_storage.hpp"
+#include "../shaders/voxel_shader.hpp"
+#include "../shaders/voxel_shadow_shader.hpp"
+#include "../ubo/first_stage_ubo.hpp"
+#include "../renderbuffers.hpp"
+#include <glm/gtc/type_ptr.hpp>
+#include "../../bengine/main_window.hpp"
+#include "renderables.hpp"
+#include "../ubo/lighting_ubo.hpp"
 
 namespace vox {
 
-	constexpr int voxidx(const int &w, const int &h, const int &d, const int &x, const int &y, const int &z) {
+	std::vector<float> master_vertices;
+	unsigned int voxel_geometry_vbo;
+	unsigned int voxel_geometry_vao;
+	static bool made_voxel_vao = false;
+	unsigned int instance_ssbo;
+	static bool made_instance_ssbo = false;
+	std::vector<instance_t> instance_buffer;
+
+	constexpr static int voxidx(const int &w, const int &h, const int &d, const int &x, const int &y, const int &z) noexcept
+	{
 		return (w * h * z) + (w * y) + x;
 	}
 
-	bool is_same(const subvoxel &a, const subvoxel &b) {
+	static void add_cube_geometry(std::vector<float> &v, const subvoxel &voxel, const float &W, const float &H, const float &D) noexcept
+	{
+		const auto x0 = -0.5f + voxel.x;
+		const auto x1 = x0 + W;
+		const auto y0 = -0.5f + voxel.z;
+		const auto y1 = y0 + D;
+		const auto z0 = -0.5f + voxel.y;
+		const auto z1 = z0 + H;
+
+		v.insert(v.end(), {
+			
+			x0, y0, z0, 0.0f, 0.0f, -1.0f,voxel.r, voxel.g, voxel.b,
+			x1, y1, z0,	0.0f, 0.0f, -1.0f,voxel.r, voxel.g, voxel.b,
+			x1, y0, z0,	0.0f, 0.0f, -1.0f,voxel.r, voxel.g, voxel.b,
+			x1, y1, z0,	0.0f, 0.0f, -1.0f,voxel.r, voxel.g, voxel.b,
+			x0, y0, z0,	0.0f, 0.0f, -1.0f,voxel.r, voxel.g, voxel.b,
+			x0, y1, z0,	0.0f, 0.0f, -1.0f,voxel.r, voxel.g, voxel.b,
+
+			x0, y0, z1,	0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
+			x1, y0, z1,	0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
+			x1, y1, z1,	0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
+			x1, y1, z1,	0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
+			x0, y1, z1,	0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
+			x0, y0, z1,	0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
+
+			x0, y1, z1,	-1.0f, 0.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x0, y1, z0,	-1.0f, 0.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x0, y0, z0,	-1.0f, 0.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x0, y0, z0,	-1.0f, 0.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x0, y0, z1,	-1.0f, 0.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x0, y1, z1,	-1.0f, 0.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+
+			x1, y1, z1, 	1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x1, y0, z0, 	1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x1, y1, z0, 	1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x1, y0, z0, 	1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x1, y1, z1, 	1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x1, y0, z1, 	1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+
+			x0, y0, z0,	0.0f, -1.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x1, y0, z0,	0.0f, -1.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x1, y0, z1,	0.0f, -1.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x1, y0, z1,	0.0f, -1.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x0, y0, z1,	0.0f, -1.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+			x0, y0, z0,	0.0f, -1.0f, 0.0f,voxel.r, voxel.g, voxel.b,
+
+			x0, y1, z0,	0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x1, y1, z1,	0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x1, y1, z0,	0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x1, y1, z1,	0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x0, y1, z0,	0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+			x0, y1, z1,	0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
+
+			});
+	}
+
+	static bool is_same(const subvoxel &a, const subvoxel &b) noexcept
+	{
 		return a.r == b.r && a.g == b.g && a.b == b.b;
 	}
 
 	void voxel_model::build_model() {
+		start_index = master_vertices.size();
+
 		// Build a cube map
 		std::map<int, subvoxel> cubes;
 		for (const auto cube : voxels) {
-			const int idx = voxidx(width, depth, height, cube.x, cube.z, cube.y);
+			const auto idx = voxidx(width, depth, height, cube.x, cube.z, cube.y);
 			cubes[idx] = cube;
 		}
-		std::cout << "Starting with " << cubes.size() << " cubes (" << cubes.size() * 36 << " triangles).\n";
 
 		// Perform greedy voxels on it
-		int cube_count = 0;
+		auto cube_count = 0;
 		while (!cubes.empty()) {
 			const auto first_cube = cubes.begin();
 			const auto base_idx = first_cube->first;
 			const auto voxel_info = first_cube->second;
 
-			int W = 1;
-			int H = 1;
-			int D = 1;
+			auto W = 1;
+			auto H = 1;
+			auto D = 1;
 			cubes.erase(base_idx);
 
-			int idx_grow_right = base_idx + 1;
-			int x_coordinate = voxel_info.x;
+			// Grow on the X
+			auto idx_grow_right = base_idx + 1;
+			auto x_coordinate = voxel_info.x;
 			auto right_finder = cubes.find(idx_grow_right);
 			while (x_coordinate < width && right_finder != cubes.end() && is_same(voxel_info, right_finder->second)) {
 				cubes.erase(idx_grow_right);
@@ -44,189 +119,160 @@ namespace vox {
 				++x_coordinate;
 				right_finder = cubes.find(idx_grow_right);
 			}
+						
+			// Grow on the Z (not Y!)
+			if (voxel_info.z < depth) {
+				auto z_progress = voxel_info.z + 1;
 
-			if (voxel_info.y < height) {
-				int y_progress = voxel_info.y + 1;
-
-				bool possible = true;
-				while (possible && y_progress < height) {
-					for (int gx = voxel_info.x; gx < voxel_info.x + width; ++gx) {
-						const int candidate_idx = voxidx(width, height, depth, gx, y_progress, voxel_info.z);
-						auto vfinder = cubes.find(candidate_idx);
+				auto possible = true;
+				while (possible && z_progress < depth) {
+					for (auto gx = voxel_info.x; gx < voxel_info.x + width; ++gx) {
+						const auto candidate_idx = voxidx(width, height, depth, gx, voxel_info.y, z_progress);
+						const auto vfinder = cubes.find(candidate_idx);
 						if (!(vfinder != cubes.end()) || !is_same(voxel_info, vfinder->second)) possible = false;
 						if (!possible) break;
 					}
 					if (possible) {
-						++H;
-						for (int gx = voxel_info.x; gx < voxel_info.x + width; ++gx) {
-							const int candidate_idx = voxidx(width, height, depth, gx, y_progress, voxel_info.z);
-							cubes.erase(candidate_idx);
-						}
-					}
-
-					++y_progress;
-				}
-			}
-
-			if (voxel_info.z < depth) {
-				int z_progress = voxel_info.z + 1;
-
-				bool possible = true;
-				while (possible && z_progress < depth) {
-					for (int gy = voxel_info.y; gy < voxel_info.y + height; ++gy) {
-						for (int gx = voxel_info.x; gx < voxel_info.x + width; ++gx) {
-							const int candidate_idx = voxidx(width, height, depth, gx, gy, z_progress);
-							auto vfinder = cubes.find(candidate_idx);
-							if (!(vfinder != cubes.end()) || !is_same(voxel_info, vfinder->second)) possible = false;
-							if (!possible) break;
-						}
-					}
-					if (possible) {
 						++D;
-						for (int gy = voxel_info.y; gy < voxel_info.y + height; ++gy) {
-							for (int gx = voxel_info.x; gx < voxel_info.x + width; ++gx) {
-								const int candidate_idx = voxidx(width, height, depth, gx, gy, z_progress);
-								cubes.erase(candidate_idx);
-							}
+						for (auto gx = voxel_info.x; gx < voxel_info.x + width; ++gx) {
+							const auto candidate_idx = voxidx(width, height, depth, gx, voxel_info.y, z_progress);
+							cubes.erase(candidate_idx);
 						}
 					}
 
 					++z_progress;
 				}
-			}
+			}	
 
-			add_cube_geometry(geometry, voxel_info, static_cast<float>(W), static_cast<float>(H), static_cast<float>(D), 3);
+			add_cube_geometry(master_vertices, voxel_info, static_cast<float>(W), static_cast<float>(H), static_cast<float>(D));
 			++cube_count;
 		}
-		std::cout << "Reduced to " << cube_count << " cubes, " << geometry.size() << " triangles.\n";
+		n_elements = (master_vertices.size() - start_index) / 9;
 
-		// Build VAO/VBO and associate geometry with it
-		build_vbo(geometry);
+		voxels.clear();
+		voxels.shrink_to_fit();
+	}	
 
-		// voxels.clear();
-	}
+	void build_master_geometry()
+	{
+		glGenBuffers(1, &voxel_geometry_vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, voxel_geometry_vbo);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(float) * master_vertices.size(), &master_vertices[0], GL_STATIC_DRAW);
 
-	void voxel_model::add_cube_geometry(std::vector<float> &v, const subvoxel &voxel,
-										const float &W, const float &H, const float &D, const float &texture_id) {
-		const float x0 = -0.5f + voxel.x;
-		const float x1 = x0 + W;
-		const float y0 = -0.5f + voxel.z;
-		const float y1 = y0 + D;
-		const float z0 = -0.5f + voxel.y;
-		const float z1 = z0 + H;
-
-		//std::cout << "Cube: " << x0 << "-" << y0 << "-" << z0 << " " << W << "x" << H << "\n";
-
-		v.insert(v.end(), {
-				x0, y0, z0, 0.0f, 0.0f, -1.0f, voxel.r, voxel.g, voxel.b,
-				x1, y0, z0, 0.0f, 0.0f, -1.0f, voxel.r, voxel.g, voxel.b,
-				x1, y1, z0, 0.0f, 0.0f, -1.0f, voxel.r, voxel.g, voxel.b,
-				x1, y1, z0, 0.0f, 0.0f, -1.0f, voxel.r, voxel.g, voxel.b,
-				x0, y1, z0, 0.0f, 0.0f, -1.0f, voxel.r, voxel.g, voxel.b,
-				x0, y1, z0, 0.0f, 0.0f, -1.0f, voxel.r, voxel.g, voxel.b,
-
-				x0, y0, z1, 0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
-				x1, y0, z1, 0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
-				x1, y1, z1, 0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
-				x1, y1, z1, 0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
-				x0, y1, z1, 0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
-				x0, y0, z1, 0.0f, 0.0f, 1.0f, voxel.r, voxel.g, voxel.b,
-
-				x0, y1, z1, -1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x0, y1, z0, -1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x0, y0, z0, -1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x0, y0, z0, -1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x0, y0, z1, -1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x0, y1, z1, -1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-
-				x1, y1, z1, 1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y1, z0, 1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y0, z0, 1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y0, z0, 1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y0, z1, 1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y1, z1, 1.0f, 0.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-
-				x0, y0, z0, 0.0f, -1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y0, z0, 0.0f, -1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y0, z1, 0.0f, -1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y0, z1, 0.0f, -1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x0, y0, z1, 0.0f, -1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x0, y0, z0, 0.0f, -1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-
-				x0, y1, z0, 0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y1, z0, 0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y1, z1, 0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x1, y1, z1, 0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x0, y1, z1, 0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b,
-				x0, y1, z0, 0.0f, 1.0f, 0.0f, voxel.r, voxel.g, voxel.b
-		});
-	}
-
-	void voxel_model::build_vbo(std::vector<float> &v) {
-		glGenBuffers(1, &vbo_id);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_id);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(float) * v.size(), &v[0], GL_STATIC_DRAW);
-		n_elements = (int)v.size() / 6;
-		std::cout << "Bound as VBO #" << vbo_id << "\n";
+		// Clear all the buffers!
+		master_vertices.clear();
 	}
 
 	void voxel_model::build_buffer(std::vector<instance_t> &instances, voxel_render_buffer_t * render)
 	{
-		constexpr size_t instance_t_size_bytes = 10 * sizeof(float);
-		assert(render->tmp_vao > 0);
+		render->instance_offset = static_cast<unsigned int>(instance_buffer.size());
 
-		// Build the instance buffer
-		if (instance_vbo_id < 1) glGenBuffers(1, &instance_vbo_id);
-		glInvalidateBufferData(instance_vbo_id);
-		glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_id);
-		glBufferData(GL_ARRAY_BUFFER, instance_t_size_bytes * instances.size(), &instances[0], GL_DYNAMIC_DRAW);
-		//glCheckError();
+		// Append to the master instance list
+		instance_buffer.insert(instance_buffer.end(), instances.begin(), instances.end());
 
-		// Create the VAO to hold this data
-		glBindVertexArray(render->tmp_vao);
-		//glCheckError();
+		if (!made_voxel_vao) {
+			// Create the VAO to hold this data
+			glGenVertexArrays(1, &voxel_geometry_vao);
+			glBindVertexArray(voxel_geometry_vao);
 
-		// Bind the consistent elements
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_id);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
-		glEnableVertexAttribArray(0); // 0 = Vertex Position
+			// Bind the consistent elements
+			glBindBuffer(GL_ARRAY_BUFFER, voxel_geometry_vbo);
 
-		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (char *) nullptr + 3 * sizeof(float));
-		glEnableVertexAttribArray(1); // 1 = Normals
-		//glCheckError();
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
+			glEnableVertexAttribArray(0); // 0 = Vertex Position
+			glVertexAttribDivisor(0, 0);
 
-		glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (char *) nullptr + 6 * sizeof(float));
-		glEnableVertexAttribArray(2); // 2 = Color
-		//glCheckError();
+			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (char *) nullptr + 3 * sizeof(float));
+			glEnableVertexAttribArray(1); // 1 = Normals
+			glVertexAttribDivisor(1, 0);
 
-		// Bind the per-element items
-		glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_id);
+			glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (char *) nullptr + 6 * sizeof(float));
+			glEnableVertexAttribArray(2); // 2 = Color
+			glVertexAttribDivisor(2, 0);
 
-		glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 10 * sizeof(float), (void*)0);
-		glEnableVertexAttribArray(3); // 0 = Instance Position
-		glVertexAttribDivisor(3, 1);
+			//glCheckError();
+			glBindVertexArray(0);
+			made_voxel_vao = true;
+		}
 
-		glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, 10 * sizeof(float), (char *) nullptr + 3 * sizeof(float));
-		glEnableVertexAttribArray(4); // 1 = Instance Rotataion (vec4)
-		glVertexAttribDivisor(4, 1);
-
-		glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, 10 * sizeof(float), (char *) nullptr + 7 * sizeof(float));
-		glEnableVertexAttribArray(5); // 2 = Tint
-		glVertexAttribDivisor(5, 1);
-
-		//glCheckError();
-		glBindVertexArray(0);
-		glCheckError();
-
-		render->n_instances = instances.size();
+		render->n_instances = static_cast<int>(instances.size());
 		render->model = this;
 	}
 
-	void voxel_model::render_instances(voxel_render_buffer_t &buffer) {
-		glBindVertexArray(buffer.tmp_vao);
-		glDrawArraysInstanced(GL_TRIANGLES, 0, n_elements, (int)buffer.n_instances);
-		glCheckError();
+	 struct DrawArraysIndirectCommand {
+		unsigned int count;
+		unsigned int instanceCount;
+		unsigned int first;
+		unsigned int baseInstance;
+	};
+
+	void bulk_render(const std::vector<std::unique_ptr<vox::voxel_render_buffer_t>> &model_buffers)
+	{
+		assets::voxel_shader->use();
+		glBindFramebuffer(GL_FRAMEBUFFER, render::gbuffer->fbo_id);
+		glBindBufferBase(GL_UNIFORM_BUFFER, 0, render::camera_ubo::ubo);
+		glUniformBlockBinding(assets::voxel_shader->shader_id, 0, assets::voxel_shader->camera_block_index);
+		glEnable(GL_CULL_FACE);
+
+		glBindVertexArray(vox::voxel_geometry_vao);
+		glShaderStorageBlockBinding(assets::voxel_shader->shader_id, assets::voxel_shader->instance_block_index, 2);
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, instance_ssbo);
+
+		for (const auto &m : model_buffers) {
+			glDrawArraysInstancedBaseInstance(GL_TRIANGLES, m->model->start_index / 9, m->model->n_elements, m->n_instances, m->instance_offset);
+		}
 
 		glBindVertexArray(0);
+		glDisable(GL_CULL_FACE);
+		glCheckError();
+	}
+
+	void bulk_shadow_render(const float radius, const std::vector<glm::mat4> &shadowTransforms, const glm::vec3 &light_pos, const unsigned int fbo_id, const unsigned int ubo_index)
+	{
+		assets::voxel_shadow_shader->use();
+		glBindBufferBase(GL_UNIFORM_BUFFER, 0, render::lighting_ubo::ubo);
+		glUniformBlockBinding(assets::voxel_shadow_shader->shader_id, 0, assets::voxel_shadow_shader->light_block_index);
+		glCheckError();
+		glUniform1ui(assets::voxel_shadow_shader->light_index, ubo_index);
+		glCheckError();
+
+		// Shadow rendering goes here
+		glBindVertexArray(vox::voxel_geometry_vao);
+		glShaderStorageBlockBinding(assets::voxel_shadow_shader->shader_id, assets::voxel_shadow_shader->instance_block_index, 2);
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, instance_ssbo);
+		//glClear(GL_DEPTH_BUFFER_BIT);
+
+		for (const auto &m : render::model_buffers) {
+			glDrawArraysInstancedBaseInstance(GL_TRIANGLES, m->model->start_index / 9, m->model->n_elements, m->n_instances, m->instance_offset);
+		}
+
+		// Cleanup
+		glBindVertexArray(0);
+		glCheckError();
+	}
+
+	void start_buffer_accumulation()
+	{
+		instance_buffer.clear();
+		instance_buffer.reserve(1000);
+	}
+
+	void finish_instance_buffers()
+	{
+		if (!made_instance_ssbo)
+		{
+			made_instance_ssbo = true;
+			glGenBuffers(1, &instance_ssbo);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, instance_ssbo);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(instance_t) * instance_buffer.size(), &instance_buffer[0], GL_DYNAMIC_COPY);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+			glCheckError();
+		}
+		else
+		{			
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, instance_ssbo);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(instance_t) * instance_buffer.size(), &instance_buffer[0], GL_DYNAMIC_COPY);
+		}
+		glCheckError();
 	}
 }

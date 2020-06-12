@@ -1,9 +1,5 @@
 #include "raws.hpp"
 #include "lua_bridge.hpp"
-#include "../components/position.hpp"
-#include "../components/renderable.hpp"
-#include "../components/items/item.hpp"
-#include "../components/items/item_stored.hpp"
 #include "string_table.hpp"
 #include "creatures.hpp"
 #include "species.hpp"
@@ -22,29 +18,10 @@
 #include "defs/clothing_t.hpp"
 #include "items.hpp"
 #include "../render_engine/vox/renderables.hpp"
-#include "../components/item_tags/item_ammo_t.hpp"
-#include "../components/item_tags/item_bone_t.hpp"
-#include "../components/item_tags/item_chopping_t.hpp"
-#include "../components/item_tags/item_digging_t.hpp"
-#include "../components/item_tags/item_drink_t.hpp"
-#include "../components/item_tags/item_food_t.hpp"
-#include "../components/item_tags/item_hide_t.hpp"
-#include "../components/item_tags/item_leather_t.hpp"
-#include "../components/item_tags/item_melee_t.hpp"
-#include "../components/item_tags/item_ranged_t.hpp"
-#include "../components/item_tags/item_skull_t.hpp"
-#include "../components/item_tags/item_spice_t.hpp"
-#include "../components/item_tags/item_seed_t.hpp"
-#include "../components/items/item_quality.hpp"
-#include "../components/items/item_wear.hpp"
-#include "../components/items/item_creator.hpp"
-#include "../components/item_tags/item_farming.hpp"
-#include "../components/item_tags/item_topsoil_t.hpp"
-#include "../components/item_tags/item_fertilizer_t.hpp"
 
-std::unique_ptr<lua_lifecycle> lua_handle;
+static std::unique_ptr<lua_lifecycle> lua_handle;
 
-void sanity_check_raws() {
+static void sanity_check_raws() noexcept {
     sanity_check_materials();
     sanity_check_clothing();
     sanity_check_professions();
@@ -58,29 +35,7 @@ void sanity_check_raws() {
     sanity_check_stockpiles();
 }
 
-void build_tech_tree_files() {
-    std::cout << "Building DOT files\n";
-
-    graphviz_t mats("material_tree.gv");
-    build_material_acquisition_tech_tree(&mats);
-
-    graphviz_t master("tech_tree.gv");
-    build_material_tech_tree(&master);
-    build_reaction_tree(&master);
-    make_building_tree(&master);
-
-    graphviz_t civs("civ_tree.gv");
-    make_civ_tree(&civs);
-
-    std::ofstream script(get_save_path() + std::string("/build-tech-tree.sh"));
-    script << "#!/bin/bash\n";
-    script << "dot -Tpng material_tree.gv -o material_tree.png\n";
-    script << "dot -Tpng tech_tree.gv -o tech_tree.png\n";
-    script << "dot -Tpng civ_tree.gv -o civ_tree.png\n";
-    script.close();
-}
-
-void load_game_tables()
+static void load_game_tables() noexcept
 {
     read_material_types();
     read_material_textures();
@@ -105,7 +60,7 @@ void load_game_tables()
     //}
 }
 
-void load_raws() {
+void load_raws() noexcept {
     using namespace string_tables;
 
 	// Load string tables for first names and last names
@@ -120,16 +75,17 @@ void load_raws() {
 
 	// Load game data via LUA
 	load_string_table(-1, "world_defs/index.txt");
-	for (const std::string &filename : string_table(-1)->strings) {
+	for (const auto &filename : string_table(-1)->strings) {
 		load_lua_script("world_defs/" + filename);
 	}
-	std::cout << "Loading tables\n";
+	//std::cout << "Loading tables\n";
 
 	// Extract game tables
 	load_game_tables();
 }
 
-void decorate_item_categories(bengine::entity_t &item, std::bitset<NUMBER_OF_ITEM_CATEGORIES> &categories) {
+void decorate_item_categories(bengine::entity_t &item, std::bitset<NUMBER_OF_ITEM_CATEGORIES> &categories) noexcept
+{
 	if (categories.test(TOOL_CHOPPING)) item.assign(item_chopping_t{});
 	if (categories.test(TOOL_DIGGING)) item.assign(item_digging_t{});
 	if (categories.test(WEAPON_MELEE)) item.assign(item_melee_t{});
@@ -146,16 +102,22 @@ void decorate_item_categories(bengine::entity_t &item, std::bitset<NUMBER_OF_ITE
 	if (categories.test(ITEM_SEED)) item.assign(item_seed_t{});
 	if (categories.test(ITEM_TOPSOIL)) item.assign(item_topsoil_t{});
 	if (categories.test(ITEM_FERTILIZER)) item.assign(item_fertilizer_t{});
+	if (categories.test(ITEM_FOOD_PREPARED)) item.assign(item_food_prepared_t{});
 }
 
-void spawn_item_on_ground(const int x, const int y, const int z, const std::string &tag, const std::size_t &material, uint8_t quality, uint8_t wear, std::size_t creator_id, std::string creator_name) {
+void spawn_item_on_ground(const int x, const int y, const int z, const std::string &tag, const std::size_t &material, uint8_t quality, uint8_t wear, int creator_id, std::string creator_name) noexcept
+{
     auto finder = get_item_def(tag);
-    if (finder == nullptr) throw std::runtime_error(std::string("Unknown item tag: ") + tag);
+	if (finder == nullptr) {
+		glog(log_target::GAME, log_severity::warning, "Unknown item tag {0}", tag);
+	}
 
-    auto mat = get_material(material);
-    if (!mat) throw std::runtime_error(std::string("Unknown material tag: ") + std::to_string(material));
+    const auto mat = get_material(material);
+	if (!mat) {
+		glog(log_target::GAME, log_severity::warning, "Unknown material tag {0}", material);
+	}
 
-    auto entity = bengine::create_entity()
+    const auto entity = bengine::create_entity()
         ->assign(position_t{ x,y,z })
         ->assign(renderable_t{ finder->glyph, finder->glyph_ascii, mat->fg, mat->bg, finder->voxel_model })
         ->assign(item_t{tag, finder->name, material, finder->stack_size, finder->clothing_layer})
@@ -169,14 +131,19 @@ void spawn_item_on_ground(const int x, const int y, const int z, const std::stri
 	render::models_changed = true;
 }
 
-bengine::entity_t * spawn_item_on_ground_ret(const int x, const int y, const int z, const std::string &tag, const std::size_t &material, uint8_t quality, uint8_t wear, std::size_t creator_id, std::string creator_name) {
+bengine::entity_t * spawn_item_on_ground_ret(const int x, const int y, const int z, const std::string &tag, const std::size_t &material, uint8_t quality, uint8_t wear, int creator_id, std::string creator_name) noexcept
+{
     auto finder = get_item_def(tag);
-    if (finder == nullptr) throw std::runtime_error(std::string("Unknown item tag: ") + tag);
+	if (finder == nullptr) {
+		glog(log_target::GAME, log_severity::warning, "Unknown item tag {0}", tag);
+	}
 
-    auto mat = get_material(material);
-    if (!mat) throw std::runtime_error(std::string("Unknown material tag: ") + std::to_string(material));
+    const auto mat = get_material(material);
+	if (!mat) {
+		glog(log_target::GAME, log_severity::warning, "Unknown material tag {0}", material);
+	}
 
-	auto entity = bengine::create_entity()
+	const auto entity = bengine::create_entity()
 		->assign(position_t{ x,y,z })
 		->assign(renderable_t{ finder->glyph, finder->glyph_ascii, mat->fg, mat->bg, finder->voxel_model })
 		->assign(item_t{ tag, finder->name, material, finder->stack_size, finder->clothing_layer })
@@ -189,15 +156,18 @@ bengine::entity_t * spawn_item_on_ground_ret(const int x, const int y, const int
     return entity;
 }
 
-void spawn_item_in_container(const std::size_t container_id, const std::string &tag, const std::size_t &material, uint8_t quality, uint8_t wear, std::size_t creator_id, std::string creator_name) {
+void spawn_item_in_container(const int container_id, const std::string &tag, const std::size_t &material, uint8_t quality, uint8_t wear, int creator_id, std::string creator_name) noexcept
+{
     auto finder = get_item_def(tag);
-    if (finder == nullptr) throw std::runtime_error(std::string("Unknown item tag: ") + tag);
+	if (finder == nullptr) {
+		glog(log_target::GAME, log_severity::warning, "Unknown item tag {0}", tag);
+	}
 
-    auto mat = get_material(material);
+    const auto mat = get_material(material);
 
-    std::cout << "Spawning [" << tag << "], glyph " << +finder->glyph << "\n";
+    //std::cout << "Spawning [" << tag << "], glyph " << +finder->glyph << "\n";
 
-	auto entity = bengine::create_entity()
+	const auto entity = bengine::create_entity()
 		->assign(item_stored_t{ container_id })
 		->assign(renderable_t{ finder->glyph, finder->glyph_ascii, mat->fg, mat->bg, finder->voxel_model })
 		->assign(item_t{ tag, finder->name, material, finder->stack_size, finder->clothing_layer })
@@ -207,10 +177,10 @@ void spawn_item_in_container(const std::size_t container_id, const std::string &
 	decorate_item_categories(*entity, finder->categories);
 }
 
-void spawn_item_carried(const std::size_t holder_id, const std::string &tag, const std::size_t &material, const item_location_t &loc, uint8_t quality, uint8_t wear, std::size_t creator_id, std::string creator_name) {
-
-	auto mat = get_material(material);
-	auto clothing_finder = get_clothing_by_tag(tag);
+void spawn_item_carried(const int holder_id, const std::string &tag, const std::size_t &material, const item_location_t &loc, uint8_t quality, uint8_t wear, int creator_id, std::string creator_name) noexcept
+{
+	const auto mat = get_material(material);
+	const auto clothing_finder = get_clothing_by_tag(tag);
 	if (clothing_finder) {
 		// Clothing needs to be handled differently
 		auto entity = bengine::create_entity()
@@ -223,9 +193,11 @@ void spawn_item_carried(const std::size_t holder_id, const std::string &tag, con
 		entity->component<item_t>()->material = material;
 	} else {
 		auto finder = get_item_def(tag);
-		if (finder == nullptr) throw std::runtime_error(std::string("Unknown item tag: ") + tag);
+		if (finder == nullptr) {
+			glog(log_target::GAME, log_severity::warning, "Unknown item tag {0}", tag);
+		}
 
-		auto entity = bengine::create_entity()
+		const auto entity = bengine::create_entity()
 			->assign(item_carried_t{ loc, holder_id })
 			->assign(renderable_t{ finder->glyph, finder->glyph_ascii, mat->fg, mat->bg, finder->voxel_model })
 			->assign(item_t{ tag, finder->name, material, finder->stack_size, finder->clothing_layer })

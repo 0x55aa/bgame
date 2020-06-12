@@ -1,6 +1,5 @@
 #include "strata.hpp"
 #include "../../planet_builder.hpp"
-#include "../../../components/water_spawner.hpp"
 #include "../../../raws/materials.hpp"
 #include "../../../raws/plants.hpp"
 #include "../../../raws/defs/plant_t.hpp"
@@ -9,10 +8,10 @@
 
 using namespace region;
 
-std::vector<std::size_t> soils;
-std::vector<std::size_t> sands;
+static std::vector<std::size_t> soils;
+static std::vector<std::size_t> sands;
 
-strata_t build_strata(std::vector<uint8_t> &heightmap, bengine::random_number_generator &rng, std::pair<biome_t, biome_type_t> &biome, planet_t &planet) {
+strata_t build_strata(std::vector<uint8_t> &heightmap, bengine::random_number_generator &rng, std::pair<biome_t, biome_type_t> &biome, planet_t &planet) noexcept {
     strata_t result;
     result.strata_map.resize(REGION_TILES_COUNT);
 
@@ -24,7 +23,7 @@ strata_t build_strata(std::vector<uint8_t> &heightmap, bengine::random_number_ge
     get_strata_materials(soils, sedimintaries, igneouses, sands);
 
     set_worldgen_status("Locating strata");
-    const int n_strata = (REGION_WIDTH + REGION_HEIGHT)*4 + rng.roll_dice(1,64);
+    const auto n_strata = (REGION_WIDTH + REGION_HEIGHT)*4 + rng.roll_dice(1,64);
     result.strata_map.resize(REGION_TILES_COUNT);
     result.material_idx.resize(n_strata);
     std::fill(result.strata_map.begin(), result.strata_map.end(), 1);
@@ -35,22 +34,22 @@ strata_t build_strata(std::vector<uint8_t> &heightmap, bengine::random_number_ge
     FastNoise biome_noise(planet.perlin_seed + (region_y() * REGION_WIDTH ) + region_x());
     biome_noise.SetNoiseType(FastNoise::Cellular);
 
-    for (int z=0; z<REGION_DEPTH; ++z) {
-        const float Z = (float)z*8.0F;
-        for (int y=0; y<REGION_WIDTH; ++y) {
-            const float Y = (float)y*8.0F;
+    for (auto z=0; z<REGION_DEPTH; ++z) {
+        const auto Z = static_cast<float>(z)*8.0F;
+        for (auto y=0; y<REGION_WIDTH; ++y) {
+            const auto Y = static_cast<float>(y)*8.0F;
             for (int x=0; x<REGION_HEIGHT; ++x) {
-                const float X = (float)x*8.0F;
-                const float cell_noise = biome_noise.GetCellular(X,Y,Z);
-                const float biome_ramp = (cell_noise + 2.0F)/4.0F;
-                assert(biome_ramp > 0.0F);
-                assert(biome_ramp < 1.0F);
-                int biome_idx = static_cast<int>(biome_ramp * (float)n_strata);
+                const auto X = static_cast<float>(x)*8.0F;
+                const auto cell_noise = biome_noise.GetCellular(X,Y,Z);
+                const auto biome_ramp = (cell_noise + 2.0F)/4.0F;
+                //assert(biome_ramp > 0.0F);
+                //assert(biome_ramp < 1.0F);
+                const auto biome_idx = static_cast<int>(biome_ramp * static_cast<float>(n_strata));
                 ++std::get<0>(result.counts[biome_idx]);
                 std::get<1>(result.counts[biome_idx]) += x;
                 std::get<2>(result.counts[biome_idx]) += y;
                 std::get<3>(result.counts[biome_idx]) += z;
-                const int map_idx = mapidx(x,y,z);
+                const auto map_idx = mapidx(x,y,z);
                 result.strata_map[map_idx] = biome_idx;
                 //std::cout << x << "/" << y << "/" << z << " : " << X << "/" << Y << "/" << Z << " = " << cell_noise << "/" << biome_ramp << " : " << biome_idx << "\n";
             }
@@ -70,24 +69,24 @@ strata_t build_strata(std::vector<uint8_t> &heightmap, bengine::random_number_ge
 
             if (z>altitude_at_center-(1+rng.roll_dice(1,4))) {
                 // Soil
-                int roll = rng.roll_dice(1,100);
+                const auto roll = rng.roll_dice(1,100);
                 if (roll < biome.second.soil_pct) {
-                    const std::size_t soil_idx = rng.roll_dice(1, soils.size())-1;
+                    const auto soil_idx = rng.roll_dice(1, soils.size())-1;
                     //std::cout << material_name(soils[soil_idx]) << "\n";
                     result.material_idx[i] = soils[soil_idx];
                 } else {
-                    const std::size_t sand_idx = rng.roll_dice(1, sands.size())-1;
+                    const auto sand_idx = rng.roll_dice(1, sands.size())-1;
                     //std::cout << material_name(sands[sand_idx]) << "\n";
                     result.material_idx[i] = sands[sand_idx];
                 }
             } else if (z>(altitude_at_center-10)/2) {
                 // Sedimentary
-                const std::size_t sed_idx = rng.roll_dice(1, sedimintaries.size())-1;
+                const int sed_idx = rng.roll_dice(1, sedimintaries.size())-1;
                 //std::cout << material_name(sedimintaries[sed_idx]) << "\n";
                 result.material_idx[i] = sedimintaries[sed_idx];
             } else {
                 // Igneous
-                const std::size_t ig_idx = rng.roll_dice(1, igneouses.size())-1;
+                const int ig_idx = rng.roll_dice(1, igneouses.size())-1;
                 //std::cout << material_name(igneouses[ig_idx]) << "\n";
                 result.material_idx[i] = igneouses[ig_idx];
             }
@@ -96,12 +95,12 @@ strata_t build_strata(std::vector<uint8_t> &heightmap, bengine::random_number_ge
             result.material_idx[i] = 1;
         }
     }
-    std::cout << count_used << " strata detected, " << n_strata - count_used << " unused.\n";
+    //std::cout << count_used << " strata detected, " << n_strata - count_used << " unused.\n";
 
     return result;
 }
 
-void lay_strata(std::vector<uint8_t> &heightmap, std::pair<biome_t, biome_type_t> &biome, strata_t &strata, bengine::random_number_generator &rng, std::vector<uint8_t> &pools, std::vector<std::pair<int, uint8_t>> &water_spawners) {
+void lay_strata(std::vector<uint8_t> &heightmap, std::pair<biome_t, biome_type_t> &biome, strata_t &strata, bengine::random_number_generator &rng, std::vector<uint8_t> &pools, std::vector<std::pair<int, uint8_t>> &water_spawners) noexcept {
     // For vegetation
     int max_veg_probability = 0;
     for (const auto &vegprob : biome.second.plants) max_veg_probability += vegprob.second;
@@ -143,10 +142,10 @@ void lay_strata(std::vector<uint8_t> &heightmap, std::pair<biome_t, biome_type_t
                         material_idx = strata.material_idx[strata_idx];
                     } else {
                         material_idx = 1;
-                        std::cout << "Warning - exceeded strata_material size\n";
+                        glog(log_target::GAME, log_severity::warning, "Warning - exceeded strata_material size");
                     }
                 } else {
-                    std::cout << "Warning - exceeded strata_map size (" << strata.strata_map.size() << ")\n";
+					glog(log_target::GAME, log_severity::warning, "Warning - exceeded strata_map size ({0})", strata.strata_map.size());
                     material_idx = 1;
                 }
                 set_tile_material(mapidx(x,y,z), material_idx);
@@ -170,38 +169,41 @@ void lay_strata(std::vector<uint8_t> &heightmap, std::pair<biome_t, biome_type_t
                         }
                     }
 
-                    while (w > 0) {
-                        set_water_level(mapidx(x,y,Z), 10);
-                        w -= 10;
-                        ++Z;
-                    }
+					set_water_level(mapidx(x, y, Z), 10);
+                    //while (w > 0) {
+                    //    set_water_level(mapidx(x,y,Z), 10);
+                    //    w -= 10;
+                    //    ++Z;
+                    //}
                 } else {
 
                     set_water_level(mapidx(x,y,z-1), 0);
                     
                     // Soil/sand
-                    int roll = rng.roll_dice(1,100);
+                    const auto roll = rng.roll_dice(1,100);
                     if (roll < biome.second.soil_pct) {
-                        const std::size_t soil_idx = rng.roll_dice(1, soils.size())-1;
+                        const int soil_idx = rng.roll_dice(1, soils.size())-1;
                         //std::cout << material_name(soils[soil_idx]) << "\n";
 						set_tile_material(mapidx(x,y,z-1), soils[soil_idx]);
                     } else {
-                        const std::size_t sand_idx = rng.roll_dice(1, sands.size())-1;
+                        const int sand_idx = rng.roll_dice(1, sands.size())-1;
                         //std::cout << material_name(sands[sand_idx]) << "\n";
                         set_tile_material(mapidx(x,y,z-1), sands[sand_idx]);
                     }
 
                     // Surface coverage
-                    std::string veg_type = "";
-                    int die_roll = rng.roll_dice(1, max_veg_probability);
-                    for (const auto &veg : biome.second.plants) {
-                        die_roll -= veg.second;
-                        if (die_roll < 1) {
-                            veg_type = veg.first;
-                            break;
-                        }
-                    }
-                    if (veg_type == "") veg_type = "none";
+                    std::string veg_type;
+					if (max_veg_probability > 0) {
+						auto die_roll = rng.roll_dice(1, max_veg_probability);
+						for (const auto &veg : biome.second.plants) {
+							die_roll -= veg.second;
+							if (die_roll < 1) {
+								veg_type = veg.first;
+								break;
+							}
+						}
+					}
+                    if (veg_type.empty()) veg_type = "none";
 
                     if (veg_type != "none") {
                         auto finder = get_plant_idx(veg_type);

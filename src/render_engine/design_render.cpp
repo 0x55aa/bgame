@@ -5,6 +5,8 @@
 #include "../bengine/gl_include.hpp"
 #include <boost/container/flat_map.hpp>
 
+using namespace tile_flags;
+
 namespace render {
 
 	bool mode_change = true;
@@ -24,7 +26,7 @@ namespace render {
 			glGenVertexArrays(1, &design_vao);
 		}
 
-		glInvalidateBufferData(design_vbo); // Invalidate the buffer
+		//glInvalidateBufferData(design_vbo); // Invalidate the buffer
 		design_geometry.clear();
 		n_elements = 0;
 
@@ -35,7 +37,7 @@ namespace render {
 				const int idx = mapidx(x, y, camera_position->region_z);
 
 				if (region::tile_type(idx) != tile_type::OPEN_SPACE) {
-					if (!region::revealed(idx)) {
+					if (!region::flag(idx, REVEALED)) {
 						// Add an unrevealed cube
 						n_elements += chunks::add_cube_geometry(design_geometry, x, y, camera_position->region_z, 1.0f, 1.0f, 3, DESIGN_DEPTH);
 					}
@@ -54,10 +56,10 @@ namespace render {
 						else if (tt == tile_type::RAMP) {
 							// TODO - write me!
 							float ne = 0.0f, se = 0.0f, sw = 0.0f, nw = 0.0f;
-							if (region::solid(idx - 1)) { sw = 1.0f; nw = 1.0f; }
-							else if (region::solid(idx + 1)) { se = 1.0f; ne = 1.0f; }
-							else if (region::solid(idx + REGION_WIDTH)) { nw = 1.0f; ne = 1.0f; }
-							else if (region::solid(idx - REGION_WIDTH)) { sw = 1.0f; se = 1.0f; }
+							if (region::flag(idx - 1, SOLID)) { sw = 1.0f; nw = 1.0f; }
+							else if (region::flag(idx + 1, SOLID)) { se = 1.0f; ne = 1.0f; }
+							else if (region::flag(idx + REGION_WIDTH, SOLID)) { nw = 1.0f; ne = 1.0f; }
+							else if (region::flag(idx - REGION_WIDTH, SOLID)) { sw = 1.0f; se = 1.0f; }
 							n_elements += chunks::add_ramp_geometry(design_geometry, x, y, camera_position->region_z, 1.0f, 1.0f, chunks::get_floor_tex(idx), ne, se, sw, nw);
 						}
 						else if (tt == tile_type::STAIRS_DOWN) {
@@ -78,18 +80,18 @@ namespace render {
 		}
 
 		glBindVertexArray(design_vao);
-		glInvalidateBufferData(design_vbo);
+		//glInvalidateBufferData(design_vbo);
 		glBindBuffer(GL_ARRAY_BUFFER, design_vbo);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(float) * design_geometry.size(), &design_geometry[0], GL_STATIC_DRAW);
 
 		glBindBuffer(GL_ARRAY_BUFFER, design_vbo);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
+		glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
 		glEnableVertexAttribArray(0); // 0 = Vertex Position
 
-		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (char *) nullptr + 3 * sizeof(float));
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (char *) nullptr + 4 * sizeof(float));
 		glEnableVertexAttribArray(1); // 1 = TexX/Y/ID
 
-		glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (char *) nullptr + 6 * sizeof(float));
+		glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (char *) nullptr + 7 * sizeof(float));
 		glEnableVertexAttribArray(2); // 2 = Normals
 
 		glBindVertexArray(0);

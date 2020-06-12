@@ -5,8 +5,7 @@
 struct voxel_shadow_shader_t : public bengine::base_shader_t {
 	voxel_shadow_shader_t();
 
-	unsigned int combined_matrix;
-	unsigned int texSize;
-	unsigned int far_plane;
-	unsigned int lightPos;
+	unsigned int light_block_index;
+	unsigned int light_index;
+	unsigned int instance_block_index;
 };

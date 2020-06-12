@@ -1,9 +1,8 @@
+#include "stdafx.h"
 #include "jobs_board.hpp"
 #include "../../../global_assets/game_designations.hpp"
 #include "../../helpers/weapons_helper.hpp"
 #include "../../../bengine/geometry.hpp"
-#include "../../../components/ai_tags/ai_tag_work_guarding.hpp"
-#include "../../../components/ai_tags/ai_tag_my_turn.hpp"
 #include "ai_work_template.hpp"
 
 namespace systems {
@@ -51,13 +50,13 @@ namespace systems {
 									idx = i;
 								}
 								else {
-									std::cout << "Guardpost already claimed\n";
+									//std::cout << "Guardpost already claimed\n";
 								}
 							}
 							++i;
 						}
 
-						std::cout << "Picked: " << idx << "\n";
+						//std::cout << "Picked: " << idx << "\n";
 
 						if (idx == std::numeric_limits<std::size_t>().max()) {
 							work.cancel_work_tag(e);

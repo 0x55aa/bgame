@@ -3,13 +3,12 @@
  */
 #pragma once
 
-#include <vector>
 #include "../tile.hpp"
 #include "../constants.hpp"
-#include "../../components/position.hpp"
 #include "../indices.hpp"
 #include "../../ascii_engine/ascii_mode.hpp"
 #include <functional>
+#include "../../bengine/bitset.hpp"
 
 /*
  * Region code is inside this namespace.
@@ -61,6 +60,7 @@ namespace region {
 
     /* Set the tile type of a cell. */
     void set_tile_type(const int idx, const uint8_t type);
+	std::vector<uint8_t> * get_tile_types_array();
 
     /* Retrieve the material for a cell. */
     std::size_t material(const int idx);
@@ -79,22 +79,9 @@ namespace region {
      */
 
     /* Is a flag set for a tile? */
-    bool flag(const int idx, uint8_t flag);
-
-    /* Is a cell solid? */
-    bool solid(const int idx);
-
-    /* Is a cell opaque? */
-    bool opaque(const int idx);
-
-    /* Is a cell revealed (has been visible at some point)? */
-    bool revealed(const int idx);
-
-    /* Is the cell above ground? */
-    bool above_ground(const int idx);
-
-    /* Is there a blood stain here? */
-    bool blood_stain(const int idx);
+    bool flag(const int idx, const tile_flags::tile_flag_type flag);
+	bengine::bitset<tile_flags::tile_flag_type> get_flag_reference(const int idx);
+	std::vector<bengine::bitset<tile_flags::tile_flag_type>> * get_tile_flags();
 
     /* Reveal a cell. */
     void reveal(const int idx);
@@ -102,20 +89,11 @@ namespace region {
     /* Make a cell visible. */
     void make_visible(const int idx);
 
-    /* Set the state of the SOLID flag for a cell. */
-    void set_solid(const int idx, bool val);
-
-    /* Set the state for the OPAQUE flag for a cell. */
-    void set_opaque(const int idx, bool val);
-
     /* Set a flag for the cell. */
-    void set_flag(const int idx, const uint8_t flag);
+    void set_flag(const int idx, const tile_flags::tile_flag_type flag);
 
     /* Unset a flag for the cell. */
-    void reset_flag(const int idx, const uint8_t flag);
-
-    /* Set the bloodstain flag for a cell. */
-    void set_bloodstain(const int idx, const bool val);
+    void reset_flag(const int idx, const tile_flags::tile_flag_type flag);
 
     /* Clear the visibility map. */
     void clear_visibility();
@@ -124,11 +102,13 @@ namespace region {
      * Water
      */
 
+	std::vector<uint32_t> * get_water_level();
+
     /* Get the water level at a specified cell */
-    uint8_t water_level(const int idx);
+    uint32_t water_level(const int idx);
 
     /* Set the water level for a cell. */
-    void set_water_level(const int idx, const uint8_t level);
+    void set_water_level(const int idx, const uint32_t level);
 
     /* Add water to a cell. */
     void add_water(const int idx);
@@ -187,8 +167,8 @@ namespace region {
 	* Buildings
 	*/
 	std::size_t get_building_id(const int idx);
-	void set_building_id(const int idx, const std::size_t id);
-	void delete_building(const std::size_t building_id);
+	void set_building_id(const int idx, const int id);
+	void delete_building(const int building_id);
 
     /*************************************
      * Bridges
@@ -211,16 +191,16 @@ namespace region {
      */
 
     /* Get the ID # of a tree on this cell. */
-    std::size_t tree_id(const int idx);
+    int tree_id(const int idx);
 
     /* Get the next tree ID */
-    std::size_t next_tree_id();
+    int next_tree_id();
 
     /* Set the tree ID # for a cell. */
-    void set_tree_id(const int idx, const std::size_t tree_id);
+    void set_tree_id(const int idx, const int tree_id);
 
     /* Erase a tree by ID #. */
-    void delete_tree(const std::size_t tree_id);
+    void delete_tree(const int tree_id);
 
     /* Increment the tree counter. */
     void inc_next_tree();

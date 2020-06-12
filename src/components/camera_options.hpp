@@ -1,25 +1,17 @@
 #pragma once
 
-#include <cereal/cereal.hpp>
-#include <cereal/types/polymorphic.hpp>
-#include "../bengine/ecs_impl.hpp"
-
-enum game_camera_mode_t { TOP_DOWN, FRONT, DIAGONAL };
+enum game_camera_mode_t { TOP_DOWN, FRONT, DIAGONAL_LOOK_NW, DIAGONAL_LOOK_NE, DIAGONAL_LOOK_SW, DIAGONAL_LOOK_SE };
 
 struct camera_options_t {
 
-    camera_options_t() {}
-	camera_options_t(game_camera_mode_t MODE, bool ASCII, int ZOOM) : camera_mode(MODE), ascii_mode(ASCII), zoom_level(ZOOM) {}
+	camera_options_t() = default;
+	camera_options_t(const game_camera_mode_t mode, const bool ascii, const int zoom) noexcept : camera_mode(mode), ascii_mode(ascii), zoom_level(zoom) {}
 
-    game_camera_mode_t camera_mode = TOP_DOWN;
+    game_camera_mode_t camera_mode = game_camera_mode_t::TOP_DOWN;
     bool ascii_mode = false;
     int zoom_level = 12;
-
-    template<class Archive>
-    void serialize(Archive & archive)
-    {
-        archive( camera_mode, ascii_mode, zoom_level );
-    }
+	bool perspective = true;
+	int following = 0;
+	bool fps = false;
 };
 
-CEREAL_REGISTER_TYPE(bengine::impl::component_store_t<bengine::impl::component_t<camera_options_t>>)

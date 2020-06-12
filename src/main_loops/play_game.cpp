@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include "play_game.hpp"
 #include "../bengine/imgui.h"
 #include "../bengine/imgui_impl_glfw_gl3.h"
@@ -6,13 +7,6 @@
 #include "../bengine/filesystem.hpp"
 #include "../planet/region/region.hpp"
 #include "../render_engine/render_engine.hpp"
-#include "../components/camera_options.hpp"
-#include "../components/logger.hpp"
-#include "../components/world_position.hpp"
-#include "../components/calendar.hpp"
-#include "../components/designations.hpp"
-#include "../components/mining/mining_designations.hpp"
-#include "../components/logger.hpp"
 #include "../global_assets/game_camera.hpp"
 #include "../systems/run_systems.hpp"
 #include "../global_assets/game_calendar.hpp"
@@ -25,32 +19,33 @@
 #include "../global_assets/building_designations.hpp"
 #include "../ascii_engine/ascii_mode.hpp"
 #include <atomic>
-#include "../components/buildings/architecture_designations_t.hpp"
 #include "../global_assets/architecture_designations.hpp"
+#include "../global_assets/debug_flags.hpp"
+#include "../bengine/IconsFontAwesome.h"
+#include <thread>
 
 namespace play_game {
 
     static std::atomic<bool> loaded(false);
     static std::unique_ptr<std::thread> loader_thread = nullptr;
 
-    static void do_load_game() {
+    static void do_load_game() noexcept {
         using namespace bengine;
 
         call_home("menu", "playgame");
         // Load the game
-        std::cout << "Loading the planet\n";
+		glog(log_target::GAME, log_severity::info, "Loading the planet");
         planet = load_planet();
 
         // Load the ECS
-        std::cout << "Loading game state\n";
+		glog(log_target::GAME, log_severity::info, "Loading game state");
         {
-            const std::string save_filename = get_save_path() + std::string("/savegame.dat");
-            std::unique_ptr<std::ifstream> lbfile = std::make_unique<std::ifstream>(save_filename, std::ios::in | std::ios::binary);
+            std::unique_ptr<std::ifstream> lbfile = std::make_unique<std::ifstream>(save_filename(), std::ios::in | std::ios::binary);
             ecs_load(lbfile);
         }
 
         // Load the current region - check the camera for the world position
-        std::cout << "Storing important entity handles\n";
+		glog(log_target::GAME, log_severity::info, "Storing important entity handles");
 
         int region_x, region_y;
         each<world_position_t, calendar_t, designations_t, logger_t, camera_options_t, mining_designations_t, farming_designations_t, building_designations_t, architecture_designations_t>(
@@ -74,17 +69,17 @@ namespace play_game {
         });
 
          // Loading the region
-        std::cout << "Loading the region\n";
+		glog(log_target::GAME, log_severity::info, "Loading the region");
         region::load_current_region(region_x, region_y);
         region::tile_recalc_all();
 		region::update_outdoor_calculation();
 
         // Setup systems
-        std::cout << "Setting up systems\n";
+		glog(log_target::GAME, log_severity::info, "Setting up systems");
         //add_systems_to_ecs();
         systems::init();
 
-        std::cout << "Go!\n";
+		glog(log_target::GAME, log_severity::info, "Go!");
 
 		game_master_mode = PLAY;
 		pause_mode = ONE_STEP;
@@ -92,7 +87,12 @@ namespace play_game {
         loaded = true;
     }
 
-    void tick(const double &duration_ms) {
+	static constexpr size_t FPS_SLOTS = 256;
+	static std::array<float, FPS_SLOTS> fps{};
+	static size_t fps_counter = 0;
+	static const std::string fps_header = std::string(ICON_FA_CLOCK_O) + std::string(" FPS");
+
+    void tick(const double &duration_ms) noexcept {
         if (!loader_thread) {
             loader_thread = std::make_unique<std::thread>(do_load_game);
         }
@@ -112,12 +112,17 @@ namespace play_game {
 				render::render_gl(duration_ms);
 			}
 
-            //ImGui::Begin("Please wait - not written yet");
-            //ImGui::Text("Frame time: %f ms, %f FPS", duration_ms, 1000.0/duration_ms);
-            //ImGui::End();
+			if (debug::show_fps) {
+				fps[fps_counter] = 1000.0 / duration_ms;
+				++fps_counter;
+				fps_counter = fps_counter % FPS_SLOTS;
+				ImGui::Begin(fps_header.c_str());
+				ImGui::Text("Frame time: %f ms, %f FPS", duration_ms, 1000.0 / duration_ms);
+				ImGui::PlotLines("FPS", &fps[0], FPS_SLOTS);
+				ImGui::End();
+			}
 
             systems::run(duration_ms);
-			bengine::ecs_garbage_collect();
         }
 
         ImGui::Render();

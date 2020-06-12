@@ -1,8 +1,5 @@
+#include "stdafx.h"
 #include "item_wear_system.hpp"
-#include "../../bengine/ecs.hpp"
-#include "../../components/items/item.hpp"
-#include "../../components/items/item_wear.hpp"
-#include "../../components/items/item_quality.hpp"
 #include "../../global_assets/rng.hpp"
 #include "../helpers/inventory_assistant.hpp"
 

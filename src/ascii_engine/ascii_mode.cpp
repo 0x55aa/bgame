@@ -8,9 +8,6 @@
 #include "../global_assets/shader_storage.hpp"
 #include "../bengine/textures.hpp"
 #include "../render_engine/fbo/buffertest.hpp"
-#include "../components/renderable.hpp"
-#include "../components/buildings/building.hpp"
-#include "../components/renderable_composite.hpp"
 #include "../systems/mouse.hpp"
 #include "../global_assets/game_mode.hpp"
 #include "../global_assets/game_designations.hpp"
@@ -27,7 +24,12 @@
 #include "../systems/gui/design_harvest.hpp"
 #include "../global_assets/farming_designations.hpp"
 #include "../systems/gui/design_architecture.hpp"
-#include <array>
+#include "../utils/system_log.hpp"
+#include "../global_assets/game_config.hpp"
+#include "../render_engine/shaders/ascii_base_shader.hpp"
+#include "../global_assets/game_ecs.hpp"
+
+using namespace tile_flags;
 
 namespace render {
 
@@ -78,7 +80,7 @@ namespace render {
 			// position color buffer
 			glGenTextures(1, &ascii_position_tex);
 			glBindTexture(GL_TEXTURE_2D, ascii_position_tex);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, nullptr);
+			glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB16F, width, height);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ascii_position_tex, 0);
@@ -86,7 +88,7 @@ namespace render {
 			// color buffer
 			glGenTextures(1, &albedo_tex);
 			glBindTexture(GL_TEXTURE_2D, albedo_tex);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+			glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, width, height);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, albedo_tex, 0);
@@ -94,8 +96,9 @@ namespace render {
 			unsigned int attachments[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
 			glDrawBuffers(2, attachments);
 
-			if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-				std::cout << "Framebuffer not complete!" << std::endl;
+			if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+				glog(log_target::LOADER, log_severity::error, "Framebuffer ASCII not complete.");
+			}
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 			// Make the VBO and VAO combination
@@ -146,7 +149,7 @@ namespace render {
 		}
 
 		static inline glyph_t get_material_glyph(const int &idx, uint8_t glyph_override = 0, bool kill_background = false) {
-			const std::size_t material_index = region::material(idx);
+			const auto material_index = region::material(idx);
 			const auto mat = get_material(material_index);
 			glyph_t result;
 			if (mat) {
@@ -164,6 +167,17 @@ namespace render {
 		}
 
 		static inline glyph_t get_floor_tile(const int &idx) {
+			if (region::stockpile_id(idx) > 0)
+			{
+				auto glyph = get_material_glyph(idx, 178);
+				glyph.r = 0.5;
+				glyph.g = 0.5;
+				glyph.b = 0.5;
+				glyph.bb = 0.0;
+				glyph.bg = 0.0;
+				glyph.br = 0.0;
+				return glyph;
+			}
 			if (region::flag(idx, CONSTRUCTION)) {
 				auto glyph = get_material_glyph(idx, '+');
 				glyph.bb = 0.0;
@@ -250,7 +264,7 @@ namespace render {
 				glyph = 206;
 				break; // All
 			default: {
-				std::cout << "WARNING: Wall calculator hit a case of " << +wall_mask << "\n";
+				glog(log_target::GAME, log_severity::warning, "Wall calculator hit a case of {0}", wall_mask);
 				glyph = 79;
 			}
 			}
@@ -263,7 +277,7 @@ namespace render {
 			// Add buildings
 			bengine::each<building_t, position_t>([](bengine::entity_t &e, building_t &b, position_t &pos) {
 				if (b.glyphs_ascii.empty()) {
-					std::cout << "WARNING: Building [" << b.tag << "] is lacking ASCII render data.\n";
+					glog(log_target::GAME, log_severity::warning, "Building [{0}] is lacking ASCII render data.", b.tag);
 					return;
 				}
 				int i = 0;
@@ -305,7 +319,8 @@ namespace render {
 		static inline glyph_t get_dive_tile(const int &idx) {
 			glyph_t result = glyph_t{ ' ', 0, 0, 0, 0, 0, 0 };
 			int dive_depth = 1;
-			constexpr int MAX_DIVE = 7;
+			const int MAX_DIVE = config::game_config.num_ascii_levels_below;
+			if (MAX_DIVE == 0) return result;
 			int check_idx = idx - (REGION_WIDTH * REGION_HEIGHT);
 			bool done = false;
 			while (check_idx > 0 && dive_depth < MAX_DIVE && !done) {
@@ -315,7 +330,7 @@ namespace render {
 					const auto element_idx = cycle % n_renderables;
 					result = element->at(element_idx);
 				}
-				else if (region::revealed(check_idx)) {
+				else if (region::flag(check_idx, REVEALED)) {
 					const uint8_t ttype = region::tile_type(check_idx);
 					switch (ttype) {
 					case tile_type::SEMI_MOLTEN_ROCK: result = glyph_t{ 177, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f }; break;
@@ -386,7 +401,7 @@ namespace render {
 						const auto element_idx = cycle % n_renderables;
 						terminal[tidx] = renderables[idx][element_idx];
 					} 
-					else if (region::revealed(idx)) {
+					else if (region::flag(idx, REVEALED)) {
 						const auto ttype = region::tile_type(idx);
 						switch (ttype) {
 						case tile_type::SEMI_MOLTEN_ROCK: terminal[tidx] = glyph_t{ 177, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f }; break;
@@ -428,7 +443,7 @@ namespace render {
 						}
 
 						// Blood stains
-						if (region::blood_stain(idx)) {
+						if (region::flag(idx, BLOODSTAIN)) {
 							terminal[tidx].br = 0.7f;
 							terminal[tidx].bg = 0.0f;
 							terminal[tidx].bb = 0.0f;
@@ -469,7 +484,7 @@ namespace render {
 					}
 
 					if (building_def->glyphs_ascii.empty()) {
-						std::cout << "WARNING: Building [" << building_def->tag << "] has no ASCII data.\n";
+						glog(log_target::GAME, log_severity::warning, "Building [{0}] has no ASCII data.", building_def->tag);
 					}
 					else {
 
@@ -614,7 +629,7 @@ namespace render {
 			}
 		}
 
-		static inline void render_ascii_ambient()
+		static inline void render_ascii_ambient(const float ambient_level = 0.5f)
 		{
 			constexpr auto glyph_width_texture_space = 1.0f / 16.0f;
 
@@ -637,12 +652,12 @@ namespace render {
 					const auto TY0 = (terminal[tidx].glyph / 16) * glyph_width_texture_space;
 					const auto TW = TX0 + glyph_width_texture_space;
 					const auto TH = TY0 + glyph_width_texture_space;
-					const auto R = terminal[tidx].r * 0.25f;
-					const auto G = terminal[tidx].g * 0.25f;
-					const auto B = terminal[tidx].b * 0.25f;
-					const auto BR = terminal[tidx].br * 0.25f;
-					const auto BG = terminal[tidx].bg * 0.25f;
-					const auto BB = terminal[tidx].bb * 0.25f;
+					const auto R = terminal[tidx].r * ambient_level;
+					const auto G = terminal[tidx].g * ambient_level;
+					const auto B = terminal[tidx].b * ambient_level;
+					const auto BR = terminal[tidx].br * ambient_level;
+					const auto BG = terminal[tidx].bg * ambient_level;
+					const auto BB = terminal[tidx].bb * ambient_level;
 
 					buffer[buffer_idx] =   vertex_t{ x1, z1, wx, wy, wz, TW, TH, R, G, B, BR, BG, BB};
 					buffer[buffer_idx +1] = vertex_t{ x1, z0, wx, wy, wz, TW, TY0, R, G, B, BR, BG, BB };
@@ -661,21 +676,21 @@ namespace render {
 			glBindBuffer(GL_ARRAY_BUFFER, ascii_vbo);
 			glBufferData(GL_ARRAY_BUFFER, buffer.size() * N_VERTICES * sizeof(float), &buffer[0], GL_DYNAMIC_DRAW);
 			glCheckError();
-		}
+		}		
 
 		static inline void present() {
 			glDisable(GL_DEPTH_TEST);
 			glBindFramebuffer(GL_FRAMEBUFFER, ascii_fbo);
 			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT);
-			glCheckError();
-			glUseProgram(assets::ascii_shader);
-			glCheckError();
+			//glCheckError();
+			glUseProgram(assets::ascii_shader->shader_id);
+			//glCheckError();
 			glBindVertexArray(ascii_vao);
-			glCheckError();
-			glUniformMatrix4fv(glGetUniformLocation(assets::ascii_shader, "projection_matrix"), 1, GL_FALSE, glm::value_ptr(camera_projection_matrix));
-			glUniformMatrix4fv(glGetUniformLocation(assets::ascii_shader, "view_matrix"), 1, GL_FALSE, glm::value_ptr(camera_modelview_matrix));
-			glUniform1i(glGetUniformLocation(assets::ascii_shader, "ascii_tex"), 0);
+			//glCheckError();
+			glUniformMatrix4fv(assets::ascii_shader->projection_matrix, 1, GL_FALSE, glm::value_ptr(camera_projection_matrix));
+			glUniformMatrix4fv(assets::ascii_shader->view_matrix, 1, GL_FALSE, glm::value_ptr(camera_modelview_matrix));
+			glUniform1i(assets::ascii_shader->ascii_tex, 0);
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, assets::ascii_texture->texture_id);
 			glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(buffer.size()));
@@ -698,9 +713,9 @@ namespace render {
 		if (!chunks::chunks_initialized) {
 			chunks::initialize_chunks();
 		}
-		chunks::update_dirty_chunks();
-		chunks::update_buffers();
-		render::update_buffers();
+		//chunks::update_dirty_chunks();
+		//chunks::update_buffers();
+		//render::update_buffers();
 
 		// Compile the ASCII render data
 		ascii::ascii_camera();
@@ -716,12 +731,20 @@ namespace render {
 		// Draw it
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(GL_LEQUAL);
-		render::update_pointlights();
-		ascii::render_ascii_ambient();
-		ascii::present();
-		render::render_ascii_pointlights(ascii::ascii_fbo, ascii::ascii_vao, assets::ascii_texture->texture_id, ascii::buffer.size(), ascii::camera_projection_matrix, ascii::camera_modelview_matrix);
+		if (config::game_config.render_ascii_light) {
+			render::update_pointlights();
+			ascii::render_ascii_ambient();
+			ascii::present();
+			render::render_ascii_pointlights(ascii::ascii_fbo, ascii::ascii_vao, assets::ascii_texture->texture_id,
+			                                 ascii::buffer.size(), ascii::camera_projection_matrix,
+			                                 ascii::camera_modelview_matrix);
+		} else
+		{
+			ascii::render_ascii_ambient(1.0f);
+			ascii::present();
+		}
 
 		// Present the FBO to the screen
-		render_test_quad(ascii::albedo_tex);
+		render_fullscreen_quad(ascii::albedo_tex);
 	}
 }

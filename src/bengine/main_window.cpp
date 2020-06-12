@@ -7,6 +7,7 @@
 #include "filesystem.hpp"
 #include "imgui_style.hpp"
 #include <chrono>
+#include "../global_assets/game_config.hpp"
 
 namespace bengine {
 
@@ -22,7 +23,7 @@ namespace bengine {
 
     void init_glfw_window_hints() {
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     }
@@ -32,7 +33,8 @@ namespace bengine {
         glfwMakeContextCurrent(main_window);
         glewExperimental = GL_TRUE;
         glewInit();
-        glfwSwapInterval(1);
+		if (config::game_config.vsync)
+			glfwSwapInterval(1);
     }
 
 	ImFontConfig config;
@@ -58,6 +60,7 @@ namespace bengine {
             glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
             glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
             glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+			glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
 
             main_window = glfwCreateWindow(width, height, "Nox Futura", nullptr, nullptr);
         }
@@ -67,11 +70,12 @@ namespace bengine {
         }
 
         finalize_glfw();
+		printf("OpenGL version supported by this platform (%s): \n", glGetString(GL_VERSION));
 
         ImGuiIO& io = ImGui::GetIO();
         const std::string font_path = std::string("game_assets/") + gui_font;
         //io.Fonts->AddFontDefault();
-        std::cout << "Loading " << font_path << ", at size " << gui_font_size << " pixels\n";
+		glog(log_target::LOADER, log_severity::info, "Loading {0}, at size {1} pixels", font_path, gui_font_size);
         io.Fonts->AddFontFromFileTTF(font_path.c_str(), static_cast<float>(gui_font_size));
         config.MergeMode = true;
         // TODO: Why does this fail?

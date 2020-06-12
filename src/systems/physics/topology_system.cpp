@@ -1,7 +1,7 @@
+#include "stdafx.h"
 #include "topology_system.hpp"
 #include "../../utils/thread_safe_message_queue.hpp"
 #include "../../planet/region/region.hpp"
-#include "../../components/items/item.hpp"
 #include "../../raws/items.hpp"
 #include "../../raws/defs/item_def_t.hpp"
 #include "../../raws/materials.hpp"
@@ -9,17 +9,16 @@
 #include "../../raws/raws.hpp"
 #include "../../raws/buildings.hpp"
 #include "../../raws/defs/building_def_t.hpp"
-#include "../../components/buildings/entry_trigger.hpp"
-#include "../../components/buildings/receives_signal.hpp"
 #include "../../render_engine/vox/renderables.hpp"
 #include "../../render_engine/chunks/chunks.hpp"
 #include "../gui/particle_system.hpp"
 #include "../ai/mining_system.hpp"
 #include "../ai/distance_map_system.hpp"
-#include "../../components/mining/mining_designations.hpp"
 #include "../ai/architecture_system.hpp"
+#include "gravity_system.hpp"
 
 using namespace bengine;
+using namespace tile_flags;
 
 namespace systems {
 	namespace topology {
@@ -35,16 +34,7 @@ namespace systems {
 			std::size_t entity_id = 0;
 			std::string tag;
 			std::size_t material = 0;
-		};
-
-		struct perform_mining_message {
-			perform_mining_message() = default;
-			perform_mining_message(const int idx, const uint8_t op, int X, int Y, int Z) : target_idx(idx),
-				operation(op), x(X), y(Y), z(Z) {}
-			int target_idx = 0;
-			uint8_t operation = 0;
-			int x=0, y=0, z=0;
-		};
+		};		
 
 		static thread_safe_message_queue<perform_construction_message> construction;
 		static thread_safe_message_queue<perform_mining_message> mining;
@@ -60,7 +50,7 @@ namespace systems {
 		static void dig(const perform_mining_message &e) {
 			make_floor(e.target_idx);
 			//auto &[x,y,z] = idxmap(e.target_idx);
-			// TODO: emit_deferred(tile_removed_message{ x,y,z });
+			gravity::tile_was_removed();
 		}
 
 		static void channel(const perform_mining_message &e) {
@@ -68,31 +58,36 @@ namespace systems {
 
 			// Add ramp
 			const auto below = e.target_idx - (REGION_WIDTH * REGION_HEIGHT);
-			if (solid(below)) {
+			if (flag(below, SOLID)) {
 				make_ramp(below);
 			}
+			gravity::tile_was_removed();
 		}
 
 		static void ramp(const perform_mining_message &e) {
 			make_ramp(e.target_idx);
 
 			const auto above = e.target_idx + (REGION_WIDTH * REGION_HEIGHT);
-			if (solid(above)) {
+			if (flag(above, SOLID)) {
 				make_open_space(above);
 				set_flag(above, CAN_STAND_HERE);
 			}
+			gravity::tile_was_removed();
 		}
 
 		static void stairs_up(const perform_mining_message &e) {
 			make_stairs_up(e.target_idx);
+			gravity::tile_was_removed();
 		}
 
 		static void stairs_down(const perform_mining_message &e) {
 			make_stairs_down(e.target_idx);
+			gravity::tile_was_removed();
 		}
 
 		static void stairs_updown(const perform_mining_message &e) {
 			make_stairs_updown(e.target_idx);
+			gravity::tile_was_removed();
 		}
 
 		static void recalculate(const perform_mining_message &e) {
@@ -128,11 +123,11 @@ namespace systems {
 				}
 			}
 			else {
-				std::cout << "Topology system - don't know how to spawn a [" << tag << "]\n";
+				glog(log_target::GAME, log_severity::warning, "Topology system - don't know how to spawn a [{0}]", tag);
 			}
 		}
 
-		static void spawn_mining_result(const perform_mining_message &e) {
+		void spawn_mining_result(const perform_mining_message &e) {
 			const auto mining_result = get_material(material(e.target_idx))->mines_to_tag;
 			const auto mining_result2 = get_material(material(e.target_idx))->mines_to_tag_second;
 
@@ -154,16 +149,16 @@ namespace systems {
 					each<position_t>([index](entity_t &E, position_t &P) {
 						if (mapidx(P.x, P.y, P.z) == index) {
 							// Something needs moving!
-							if (!solid(index + 1)) {
+							if (!flag(index + 1, SOLID)) {
 								std::tie(P.x, P.y, P.z) = idxmap(index + 1);
 							}
-							else if (!solid(index - 1)) {
+							else if (!flag(index - 1, SOLID)) {
 								std::tie(P.x, P.y, P.z) = idxmap(index - 1);
 							}
-							else if (!solid(index + REGION_WIDTH)) {
+							else if (!flag(index + REGION_WIDTH, SOLID)) {
 								std::tie(P.x, P.y, P.z) = idxmap(index + REGION_WIDTH);
 							}
-							else if (!solid(index - REGION_WIDTH)) {
+							else if (!flag(index - REGION_WIDTH, SOLID)) {
 								std::tie(P.x, P.y, P.z) = idxmap(index - REGION_WIDTH);
 							}
 						}
@@ -189,34 +184,6 @@ namespace systems {
 					set_tile_type(index, tile_type::RAMP);
 					set_tile_material(index, e.material);
 				}
-				else if (provides.provides == provides_cage_trap) {
-					// Create a new entity for the trap
-					// Add an entry_trigger and a position to it
-					const auto [x,y,z] = idxmap(index);
-					create_entity()->assign(position_t{ x, y, z })->assign(entry_trigger_t{ trigger_cage });
-					entity_should_be_deleted = false;
-				}
-				else if (provides.provides == provides_stonefall_trap) {
-					// Create a new entity for the trap
-					// Add an entry_trigger and a position to it
-					const auto &[x,y,z] = idxmap(index);
-					create_entity()->assign(position_t{ x, y, z })->assign(entry_trigger_t{ trigger_stonefall });
-					entity_should_be_deleted = false;
-				}
-				else if (provides.provides == provides_blades_trap) {
-					// Create a new entity for the trap
-					// Add an entry_trigger and a position to it
-					const auto &[x,y,z] = idxmap(index);
-					create_entity()->assign(position_t{ x, y, z })->assign(entry_trigger_t{ trigger_blade });
-					entity_should_be_deleted = false;
-				}
-				else if (provides.provides == provides_spikes) {
-					// Create a new entity for the trap
-					// Add an entry_trigger and a position to it
-					const auto [x,y,z] = idxmap(index);
-					create_entity()->assign(position_t{ x, y, z })->assign(receives_signal_t{});
-					entity_should_be_deleted = false;
-				}
 			}
 
 			tile_calculate(construction_pos->x, construction_pos->y, construction_pos->z);
@@ -231,7 +198,7 @@ namespace systems {
 
 			if (entity_should_be_deleted) {
 				delete_entity(e.entity_id);
-				std::cout << "Deleted entity\n";
+				//std::cout << "Deleted entity\n";
 			}
 			render::models_changed = true;
 			chunks::mark_chunk_dirty_by_tileidx(index);

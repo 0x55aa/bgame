@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include "calendar_system.hpp"
 #include "../../global_assets/game_calendar.hpp"
 #include "../../global_assets/game_pause.hpp"
@@ -24,11 +25,11 @@ namespace systems {
 			const float time_as_float = time_overall; // Should be in the range 0-1
 			const float time_as_radians = (time_as_float * 6.28319f);
 			//auto sun_pos = bengine::project_angle(0, 0, sun_distance, time_as_radians);
-			const float X = std::cos(time_as_radians) * 256.0f;
-			const float Y = std::sin(time_as_radians) * 256.0f;
-			calendar->sun_x = X + 128.0f;
-			calendar->sun_y = Y + 128.0f;
-			calendar->sun_z = static_cast<float>(129.0f);
+			const float X = std::cos(time_as_radians);
+			const float Y = std::sin(time_as_radians);
+			calendar->sun_x = X;
+			calendar->sun_y = Y;
+			calendar->sun_z = static_cast<float>(0.0f);
 
 			//std::cout << "At: " << +calendar->hour << ":" << +calendar->minute << ", sun is at " << calendar->sun_x << ", " << calendar->sun_y << ", " << calendar->sun_z << "\n";
 		}
@@ -43,10 +44,10 @@ namespace systems {
 			day_elapsed = false;
             if (calendar->hour != hour) hour_elapsed = true;
             if (calendar->day != day) day_elapsed = true;
-			if (hour_elapsed || first_calendar) {
+			//if (hour_elapsed || first_calendar) {
 				calculate_sun_moon();
-				first_calendar = false;
-			}
+			//	first_calendar = false;
+			//}
         }
     }
 }

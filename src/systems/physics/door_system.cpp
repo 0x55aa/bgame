@@ -1,9 +1,9 @@
+#include "stdafx.h"
 #include "door_system.hpp"
 #include "../../planet/region/region.hpp"
 #include "../../global_assets/game_planet.hpp"
 #include "../../global_assets/rng.hpp"
-#include "../../components/position.hpp"
-#include "../../components/buildings/construct_provides_door.hpp"
+#include "../../render_engine/chunks/chunks.hpp"
 
 using namespace bengine;
 using namespace region;
@@ -36,10 +36,8 @@ namespace systems {
 							}
 						}
 					}
+					chunks::mark_chunk_dirty_by_tileidx(idx);
 				});
-				//emit(recalculate_mining_message{});
-				//emit(renderables_changed_message{});
-				//emit(map_dirty_message{});
 				dirty = false;
 			}
 		}

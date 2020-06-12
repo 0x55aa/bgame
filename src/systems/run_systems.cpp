@@ -1,4 +1,4 @@
-#include <ctime>
+#include "stdafx.h"
 #include "run_systems.hpp"
 #include "io/camera_system.hpp"
 #include "gui/tooltip_system.hpp"
@@ -39,6 +39,7 @@
 #include "ai/settler/ai_work_order.hpp"
 #include "ai/settler/ai_work_architect.hpp"
 #include "ai/settler/ai_work_hunt.hpp"
+#include "ai/settler/ai_work_butcher.hpp"
 #include "ai/settler/ai_idle_time.hpp"
 #include "ai/settler/ai_work_farm_clear.hpp"
 #include "ai/settler/ai_work_farm_plant.hpp"
@@ -79,12 +80,17 @@
 #include "gui/job_center_ui.hpp"
 #include "gui/wish_mode.hpp"
 #include "../bengine/imgui.h"
-#include "../bengine/imgui_impl_glfw_gl3.h"
 #include "keydamper.hpp"
 #include "mouse.hpp"
 #include "../global_assets/game_mode.hpp"
 #include <boost/container/flat_map.hpp>
 #include "../global_assets/debug_flags.hpp"
+#include "ai/settler/ai_work_stockpile.hpp"
+#include "ai/settler/ai_deconstruct.hpp"
+#include "gui/building_info.hpp"
+#include "scheduler/hunger_system.hpp"
+#include "ai/settler/ai_leisure_eat.hpp"
+#include "ai/settler/ai_leisure_drink.hpp"
 
 namespace systems {
 	constexpr int CAMERA_SYSTEM = 1;
@@ -164,15 +170,22 @@ namespace systems {
 	constexpr int AI_FARM_WATER = 75;
 	constexpr int AI_FARM_WEED = 76;
 	constexpr int ARCHITECTURE_SYSTEM = 77;
+	constexpr int AI_BUTCHER_SYSTEM = 78;
+	constexpr int AI_STOCKPILE_SYSTEM = 79;
+	constexpr int AI_DECONSTRUCT_SYSTEM = 80;
+	constexpr int BUILDING_INFO_SYS = 81;
+	constexpr int HUNGER_SYSTEM = 82;
+	constexpr int EAT_SYSTEM = 83;
+	constexpr int DRINK_SYSTEM = 84;
 
     boost::container::flat_map<int, std::pair<int, std::vector<float>>> run_time;
     boost::container::flat_map<int, std::string> system_names;
 
     template <typename F>
     inline void run_system(F &run_func, const double &duration_ms, const int SYSTEM) {
-        auto start_time = std::chrono::high_resolution_clock::now();
+        const auto start_time = std::chrono::high_resolution_clock::now();
         run_func(duration_ms);
-        auto end_time = std::chrono::high_resolution_clock::now();
+        const auto end_time = std::chrono::high_resolution_clock::now();
         const double system_running_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
         auto finder = run_time.find(SYSTEM);
         if (finder == run_time.end()) {
@@ -264,6 +277,13 @@ namespace systems {
 		system_names[AI_FARM_WATER] = "Farm - Water";
 		system_names[AI_FARM_WEED] = "Farm - Weed";
 		system_names[ARCHITECTURE_SYSTEM] = "Architecture System";
+		system_names[AI_BUTCHER_SYSTEM] = "Butcher System";
+		system_names[AI_STOCKPILE_SYSTEM] = "AI Stockpiling";
+		system_names[AI_DECONSTRUCT_SYSTEM] = "Deconstruction";
+		system_names[BUILDING_INFO_SYS] = "Building Info";
+		system_names[HUNGER_SYSTEM] = "Hunger System";
+		system_names[EAT_SYSTEM] = "Eating System";
+		system_names[DRINK_SYSTEM] = "Drinking System";
 		game_master_mode = PLAY;
     }
 
@@ -298,11 +318,16 @@ namespace systems {
 		else if (game_master_mode == WISHMODE) {
 			run_system(wishmode::run, duration_ms, WISH_MODE_SYSTEM);
 		}
+		else if (game_master_mode == BUILDING_INFO) {
+			run_system(building_info::run, duration_ms, WISH_MODE_SYSTEM);
+		}
 
         // Items that only run if the simulation has ticked
         if (major_tick) {
+			fluids::copy_to_gpu();
 			logging::age_log();
             run_system(calendarsys::run, duration_ms, CALENDAR_SYSTEM);
+			run_system(hunger_system::run, duration_ms, HUNGER_SYSTEM);
 			if (hour_elapsed) run_system(settler_spawner::run, duration_ms, SETTLER_SPAWNER_SYSTEM);
 			if (day_elapsed || wildlife_population::first_run) run_system(wildlife_population::run, duration_ms, WILDLIFE_POPULATION_SYSTEM);
 			run_system(fluids::run, duration_ms, FLUID_SYSTEM);
@@ -342,6 +367,11 @@ namespace systems {
 			run_system(ai_workorder::run, duration_ms, AI_WORK_ORDER);
 			run_system(ai_architect::run, duration_ms, AI_WORK_ARCHITECT);
 			run_system(ai_hunt::run, duration_ms, AI_WORK_HUNT);
+			run_system(ai_butcher::run, duration_ms, AI_BUTCHER_SYSTEM);
+			run_system(ai_work_stockpiles::run, duration_ms, AI_STOCKPILE_SYSTEM);
+			run_system(ai_deconstruction::run, duration_ms, AI_DECONSTRUCT_SYSTEM);
+			run_system(ai_leisure_eat::run, duration_ms, EAT_SYSTEM);
+			run_system(ai_leisure_drink::run, duration_ms, DRINK_SYSTEM);
 			run_system(ai_idle_time::run, duration_ms, AI_IDLE);
 			run_system(movement::run, duration_ms, MOVEMENT_SYSTEM);
 			run_system(triggers::run, duration_ms, TRIGGER_SYSTEM);
@@ -357,6 +387,7 @@ namespace systems {
 			run_system(visibility::run, duration_ms, VISIBILITY_SYSTEM);
 			run_system(vegetation::run, duration_ms, VEGETATION_SYSTEM);
 			if (day_elapsed) run_system(item_wear::run, duration_ms, ITEM_WEAR_SYSTEM);
+			fluids::copy_from_gpu();
         }
 		run_system(design_mode::run, duration_ms, DESIGN_MODE_SYSTEM);
 		if (game_master_mode == DESIGN) {
@@ -367,6 +398,10 @@ namespace systems {
 			if (game_design_mode == ARCHITECTURE) run_system(design_architecture::run, duration_ms, DESIGN_GUARDPOINTS_SYSTEM);
 			if (game_design_mode == DIGGING) run_system(design_mining::run, duration_ms, DESIGN_GUARDPOINTS_SYSTEM);
 			if (game_design_mode == STOCKPILES) run_system(design_stockpiles::run, duration_ms, DESIGN_GUARDPOINTS_SYSTEM);
+		}
+		if (game_master_mode == TRIGGER_MANAGEMENT)
+		{
+			triggers::edit_triggers();
 		}
 		run_system(inventory_system::run, duration_ms, INVENTORY_SYSTEM);
 		run_system(particles::run, duration_ms, PARTICLE_SYSTEM);
@@ -379,10 +414,10 @@ namespace systems {
             ImGui::Begin("Systems Profile");
             ImGui::Text("Frame time: %f", duration_ms);
             for (auto sys_finder=run_time.begin(); sys_finder != run_time.end(); ++sys_finder) {
-                const int id = sys_finder->first;
-                auto name_finder = system_names.find(id);
+                const auto id = sys_finder->first;
+                const auto name_finder = system_names.find(id);
                 if (name_finder != system_names.end()) {
-                    ImGui::PlotLines(name_finder->second.c_str(), (const float *)&sys_finder->second.second.at(0), 100);
+                    ImGui::PlotLines(name_finder->second.c_str(), static_cast<const float *>(&sys_finder->second.second.at(0)), 100);
                 }
             }
             ImGui::End();

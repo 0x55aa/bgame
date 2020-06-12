@@ -3,10 +3,14 @@
 #include "../../planet/indices.hpp"
 #include "../../planet/region/region.hpp"
 #include "../../raws/materials.hpp"
-#include "../../raws/defs/material_def_t.hpp"
 #include "geometry_helper.hpp"
 #include "../../global_assets/farming_designations.hpp"
 #include "../../bengine/gl_include.hpp"
+#include "../../raws/buildings.hpp"
+#include "../../raws/defs/building_def_t.hpp"
+#include "../../global_assets/game_ecs.hpp"
+
+using namespace tile_flags;
 
 namespace chunks {
     std::array<chunk_t, CHUNKS_TOTAL> chunks;
@@ -39,7 +43,7 @@ namespace chunks {
         //std::lock_guard<std::mutex> lock(dirty_buffer_mutex);
         dirty_buffers.insert(idx);
 		mark_chunk_clean(idx);
-		std::cout << "Enqueued buffer update\n";
+		//std::cout << "Enqueued buffer update\n";
     }
 
     void initialize_chunks() {
@@ -99,7 +103,7 @@ namespace chunks {
 
                     const auto tiletype = region::tile_type(idx);
                     if (tiletype != tile_type::OPEN_SPACE) {
-                        if (region::revealed(idx)) {
+                        if (region::flag(idx, REVEALED)) {
 							if (tiletype == tile_type::WINDOW) {
 								// TODO: Windows go into transparency buffer
 								cubes[idx] = 15;
@@ -113,10 +117,10 @@ namespace chunks {
 							} else if (tiletype == tile_type::RAMP) {
 								// TODO - write me!
 								float ne = 0.0f, se = 0.0f, sw = 0.0f, nw = 0.0f;
-								if (region::solid(idx - 1)) { sw = 1.0f; nw = 1.0f; }
-								else if (region::solid(idx + 1)) { se = 1.0f; ne = 1.0f; }
-								else if (region::solid(idx + REGION_WIDTH)) { nw = 1.0f; ne = 1.0f; }
-								else if (region::solid(idx - REGION_WIDTH)) { sw = 1.0f; se = 1.0f; }
+								if (region::flag(idx - 1, SOLID)) { sw = 1.0f; nw = 1.0f; }
+								else if (region::flag(idx + 1, SOLID)) { se = 1.0f; ne = 1.0f; }
+								else if (region::flag(idx + REGION_WIDTH, SOLID)) { nw = 1.0f; ne = 1.0f; }
+								else if (region::flag(idx - REGION_WIDTH, SOLID)) { sw = 1.0f; se = 1.0f; }
 								layers[chunk_z].n_elements += add_ramp_geometry(layers[chunk_z].v, region_x, region_y, region_z, 1.0f, 1.0f, get_floor_tex(idx), ne, se, sw, nw);
 							}
 							else if (tiletype == tile_type::STAIRS_DOWN) {
@@ -127,6 +131,30 @@ namespace chunks {
 							}
 							else if (tiletype == tile_type::STAIRS_UPDOWN) {
 								static_voxel_models[25].push_back(std::make_tuple(region_x, region_y, region_z));
+							}
+							else if (tiletype == tile_type::CLOSED_DOOR) {
+								auto vox_id = 128;
+								const auto bid = region::get_building_id(idx);
+								if (bid > 0)
+								{
+									const auto building_entity = bengine::entity(bid);
+									if (building_entity)
+									{
+										const auto building_comp = building_entity->component<building_t>();
+										if (building_comp)
+										{
+											const auto def = get_building_def(building_comp->tag);
+											if (def)
+											{
+												for (const auto &p : def->provides)
+												{
+													if (p.alternate_vox > 0) vox_id = p.alternate_vox;
+												}
+											}
+										}
+									}
+								}
+								static_voxel_models[vox_id].push_back(std::make_tuple(region_x, region_y, region_z));
 							}
 						}
                     }
@@ -146,7 +174,7 @@ namespace chunks {
     }
 
     void chunk_t::greedy_floors(boost::container::flat_map<int, unsigned int> &floors, const int &layer) {
-        std::size_t n_floors = floors.size();
+        auto n_floors = floors.size();
 
         //std::cout << floors.size() << " floors to process\n";
 
@@ -156,12 +184,12 @@ namespace chunks {
             const auto texture_id = first_floor->second;
 
 			const auto &[tile_x, tile_y, tile_z] = idxmap(base_region_idx);
-            int width = 1;
-            int height = 1;
+            auto width = 1;
+            auto height = 1;
 
             floors.erase(base_region_idx);
-            int idx_grow_right = base_region_idx+1;
-            int x_coordinate = tile_x;
+            auto idx_grow_right = base_region_idx+1;
+            auto x_coordinate = tile_x;
             auto right_finder = floors.find(idx_grow_right);
             while (x_coordinate < REGION_WIDTH-1 && idx_grow_right < mapidx(std::min(REGION_WIDTH-1, base_x + CHUNK_SIZE), tile_y, tile_z) && right_finder != floors.end() && right_finder->second == texture_id) {
                 floors.erase(idx_grow_right);
@@ -174,19 +202,19 @@ namespace chunks {
             //std::cout << "Merging " << width << " tiles horizontally\n";
 
             if (tile_y < REGION_HEIGHT-1) {
-                int y_progress = tile_y + 1;
+                auto y_progress = tile_y + 1;
 
-                bool possible = true;
+				auto possible = true;
                 while (possible && y_progress < base_y + CHUNK_SIZE && y_progress < REGION_HEIGHT-1) {
-                    for (int gx = tile_x; gx < tile_x + width; ++gx) {
-                        const int candidate_idx = mapidx(gx, y_progress, tile_z);
-                        auto vfinder = floors.find(candidate_idx);
+                    for (auto gx = tile_x; gx < tile_x + width; ++gx) {
+                        const auto candidate_idx = mapidx(gx, y_progress, tile_z);
+                        const auto vfinder = floors.find(candidate_idx);
                         if (vfinder == floors.end() || vfinder->second != texture_id) possible = false;
                     }
                     if (possible) {
                         ++height;
-                        for (int gx = tile_x; gx < tile_x + width; ++gx) {
-                            const int candidate_idx = mapidx(gx, y_progress, tile_z);
+                        for (auto gx = tile_x; gx < tile_x + width; ++gx) {
+                            const auto candidate_idx = mapidx(gx, y_progress, tile_z);
                             floors.erase(candidate_idx);
                         }
                     }
@@ -207,7 +235,7 @@ namespace chunks {
     }
 
     void chunk_t::greedy_cubes(boost::container::flat_map<int, unsigned int> &cubes, const int &layer) {
-        std::size_t n_cubes = cubes.size();
+		auto n_cubes = cubes.size();
 
         while (!cubes.empty()) {
             const auto first_floor = cubes.begin();
@@ -215,12 +243,12 @@ namespace chunks {
             const auto texture_id = first_floor->second;
 
 			const auto &[tile_x, tile_y, tile_z] = idxmap(base_region_idx);
-            int width = 1;
-            int height = 1;
+			auto width = 1;
+			auto height = 1;
 
             cubes.erase(base_region_idx);
-            int idx_grow_right = base_region_idx+1;
-            int x_coordinate = tile_x;
+			auto idx_grow_right = base_region_idx+1;
+			auto x_coordinate = tile_x;
             auto right_finder = cubes.find(idx_grow_right);
             while (x_coordinate < REGION_WIDTH-1 && idx_grow_right < mapidx(std::min(REGION_WIDTH-1, base_x + CHUNK_SIZE), tile_y, tile_z) && right_finder != cubes.end() && right_finder->second == texture_id) {
                 cubes.erase(idx_grow_right);
@@ -233,19 +261,19 @@ namespace chunks {
             //std::cout << "Merging " << width << " tiles horizontally\n";
 
             if (tile_y < REGION_HEIGHT-1) {
-                int y_progress = tile_y + 1;
+				auto y_progress = tile_y + 1;
 
-                bool possible = true;
+				auto possible = true;
                 while (possible && y_progress < base_y + CHUNK_SIZE && y_progress < REGION_HEIGHT-1) {
-                    for (int gx = tile_x; gx < tile_x + width; ++gx) {
-                        const int candidate_idx = mapidx(gx, y_progress, tile_z);
-                        auto vfinder = cubes.find(candidate_idx);
+                    for (auto gx = tile_x; gx < tile_x + width; ++gx) {
+                        const auto candidate_idx = mapidx(gx, y_progress, tile_z);
+                        const auto vfinder = cubes.find(candidate_idx);
                         if (!(vfinder != cubes.end() && vfinder->second == texture_id)) possible = false;
                     }
                     if (possible) {
                         ++height;
                         for (int gx = tile_x; gx < tile_x + width; ++gx) {
-                            const int candidate_idx = mapidx(gx, y_progress, tile_z);
+                            const auto candidate_idx = mapidx(gx, y_progress, tile_z);
                             cubes.erase(candidate_idx);
                         }
                     }
@@ -266,7 +294,7 @@ namespace chunks {
     }       
 	
     void chunk_t::update_buffer() {
-		bool reset_vao = false;
+		auto reset_vao = false;
         if (vao < 1) { 
 			glGenVertexArrays(1, &vao); 
 			glCheckError(); 
@@ -286,38 +314,60 @@ namespace chunks {
 			layer.v.shrink_to_fit();
         }
 
-		glInvalidateBufferData(vbo);
+		//glInvalidateBufferData(vbo);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER, sizeof(float) * data.size(), &data[0], GL_STATIC_DRAW);
 
 		if (reset_vao) {
 			glBindVertexArray(vao);
 			glBindBuffer(GL_ARRAY_BUFFER, vbo);
-			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
-			glEnableVertexAttribArray(0); // 0 = Vertex Position
+			glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+			glEnableVertexAttribArray(0); // 0 = Vertex Position, using the last vector element to be real Z
 
-			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (char *) nullptr + 3 * sizeof(float));
+			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (char *) nullptr + 4 * sizeof(float));
 			glEnableVertexAttribArray(1); // 1 = TexX/Y/ID
 
-			glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (char *) nullptr + 6 * sizeof(float));
+			glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (char *) nullptr + 7 * sizeof(float));
 			glEnableVertexAttribArray(2); // 2 = Normals
 
 			glBindVertexArray(0);
 			glCheckError();
 		}
-    }	
+    }
+
+	bool made_flags_ssbo = false;
+	unsigned int flags_ssbo;
+
+	static void update_world_buffer()
+	{
+		if (!made_flags_ssbo)
+		{
+			glGenBuffers(1, &flags_ssbo);
+			made_flags_ssbo = true;
+
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, flags_ssbo);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint32_t) * region::get_tile_flags()->size(), &region::get_tile_flags()->operator[](0), GL_DYNAMIC_COPY);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+		} else
+		{
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, flags_ssbo);
+			GLvoid* p = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY);
+			memcpy(p, &region::get_tile_flags()->operator[](0), sizeof(uint32_t) * region::get_tile_flags()->size());
+			glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+		}
+		
+	}
 
     void update_buffers() {
+		bool did_something = false;
 		while (!dirty_buffers.empty()) {
 			int idx;
-			//std::lock_guard<std::mutex> lock(dirty_buffer_mutex);
 			idx = *dirty_buffers.begin();
-			//chunks[idx].ready.store(false);
 			dirty_buffers.erase(idx);
 			chunks[idx].update_buffer();
-			//chunks[idx].ready.store(true);
-			std::cout << "Buffer Updated\n";
+			did_something = true;
 		}
+		update_world_buffer(); // Always so that view sheds are visible
     }
 
 }

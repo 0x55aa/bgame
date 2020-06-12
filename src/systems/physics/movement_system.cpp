@@ -1,43 +1,43 @@
+#include "stdafx.h"
 #include "movement_system.hpp"
 #include "../../planet/region/region.hpp"
 #include "../../global_assets/rng.hpp"
 #include "../../utils/thread_safe_message_queue.hpp"
-#include "../../components/slidemove.hpp"
-#include "../../components/initiative.hpp"
-#include "../../components/riding_t.hpp"
 #include "../../global_assets/spatial_db.hpp"
 #include "trigger_system.hpp"
 #include "visibility_system.hpp"
 #include "../../render_engine/vox/renderables.hpp"
 
+using namespace tile_flags;
+
 namespace systems {
 	namespace movement {
 
 		struct entity_wants_to_move_message {
-			entity_wants_to_move_message() {}
-			entity_wants_to_move_message(std::size_t id, const position_t dest) : entity_id(id), destination(dest) { }
-			std::size_t entity_id;
+			entity_wants_to_move_message() = default;
+			entity_wants_to_move_message(const int id, const position_t dest) : entity_id(id), destination(dest) { }
+			int entity_id;
 			position_t destination;
 		};
 
 		struct entity_wants_to_move_randomly_message {
-			entity_wants_to_move_randomly_message() {}
-			entity_wants_to_move_randomly_message(std::size_t id) : entity_id(id) {}
-			std::size_t entity_id;
+			entity_wants_to_move_randomly_message() = default;
+			entity_wants_to_move_randomly_message(const int id) : entity_id(id) {}
+			int entity_id;
 		};
 
 		struct entity_wants_to_flee_message {
-			entity_wants_to_flee_message() {}
-			entity_wants_to_flee_message(std::size_t id, std::size_t flee_from) : entity_id(id), flee_from_id(flee_from) {}
-			std::size_t entity_id;
-			std::size_t flee_from_id;
+			entity_wants_to_flee_message() = default;
+			entity_wants_to_flee_message(const int id, const int flee_from) : entity_id(id), flee_from_id(flee_from) {}
+			int entity_id;
+			int flee_from_id;
 		};
 
 		struct entity_wants_to_charge_message {
-			entity_wants_to_charge_message() {}
-			entity_wants_to_charge_message(std::size_t id, std::size_t charge_to) : entity_id(id), charge_to_id(charge_to) {}
-			std::size_t entity_id;
-			std::size_t charge_to_id;
+			entity_wants_to_charge_message() = default;
+			entity_wants_to_charge_message(const int id, const int charge_to) : entity_id(id), charge_to_id(charge_to) {}
+			int entity_id;
+			int charge_to_id;
 		};		
 
 		thread_safe_message_queue<entity_wants_to_move_message> move_requests;
@@ -46,27 +46,19 @@ namespace systems {
 		thread_safe_message_queue<entity_wants_to_flee_message> flee_requests;
 		thread_safe_message_queue<entity_moved_message> move_completions;
 
-		void move_to(bengine::entity_t &e, position_t &pos, position_t &dest) {
+		void move_to(bengine::entity_t &e, const position_t &pos, const position_t &dest) {
 			move_requests.enqueue(entity_wants_to_move_message{ e.id, dest });
 		}
 
-		void move_to(const std::size_t id, const position_t &dest) {
-			move_requests.enqueue(entity_wants_to_move_message{ id, dest });
-		}
-
-		void request_move(entity_wants_to_move_message &msg) {
-			move_requests.enqueue(std::move(msg));
-		}
-
-		void request_flee(std::size_t id, std::size_t flee_from) {
+		void request_flee(int id, int flee_from) {
 			flee_requests.enqueue(entity_wants_to_flee_message{id, flee_from});
 		}
 
-		void request_charge(std::size_t id, std::size_t charge_to) {
+		void request_charge(int id, int charge_to) {
 			charge_requests.enqueue(entity_wants_to_charge_message{ id, charge_to });
 		}
 
-		void request_random_move(std::size_t id) {
+		void request_random_move(int id) {
 			wander_requests.enqueue(entity_wants_to_move_randomly_message{ id });
 		}
 
@@ -75,27 +67,37 @@ namespace systems {
 			using namespace region;
 
 			wander_requests.process_all([](entity_wants_to_move_randomly_message msg) {
-				auto original = entity(msg.entity_id)->component<position_t>();
+				const auto e = entity(msg.entity_id);
+				const auto original = e->component<position_t>();
+				if (!original) return;
 
-				position_t pos = *original;
-				const int tile_index = mapidx(pos.x, pos.y, pos.z);
-				const int direction = rng.roll_dice(1, 6);
+				auto dest = position_t{};
+				dest.x = original->x;
+				dest.y = original->y;
+				dest.z = original->z;
+
+				const auto tile_index = mapidx(dest.x, dest.y, dest.z);
+				const auto direction = rng.roll_dice(1, 10);
 				switch (direction) {
-				case 1: if (flag(tile_index, CAN_GO_UP)) pos.z++; break;
-				case 2: if (flag(tile_index, CAN_GO_DOWN)) pos.z--; break;
-				case 3: if (flag(tile_index, CAN_GO_NORTH)) pos.y--; break;
-				case 4: if (flag(tile_index, CAN_GO_SOUTH)) pos.y++; break;
-				case 5: if (flag(tile_index, CAN_GO_EAST)) pos.x++; break;
-				case 6: if (flag(tile_index, CAN_GO_WEST)) pos.x--; break;
+				case 1: if (flag(tile_index, CAN_GO_UP)) dest.z++; break;
+				case 2: if (flag(tile_index, CAN_GO_DOWN)) dest.z--; break;
+				case 3: if (flag(tile_index, CAN_GO_NORTH)) dest.y--; break;
+				case 4: if (flag(tile_index, CAN_GO_SOUTH)) dest.y++; break;
+				case 5: if (flag(tile_index, CAN_GO_EAST)) dest.x++; break;
+				case 6: if (flag(tile_index, CAN_GO_WEST)) dest.x--; break;
+				case 7: if (flag(tile_index, CAN_GO_NORTH_EAST)) { dest.y--; dest.x++; } break;
+				case 8: if (flag(tile_index, CAN_GO_NORTH_WEST)) { dest.y--; dest.x--; } break;
+				case 9: if (flag(tile_index, CAN_GO_SOUTH_EAST)) { dest.y++; dest.x++; } break;
+				case 10: if (flag(tile_index, CAN_GO_SOUTH_WEST)) { dest.y++; dest.x--; } break;
 				}
-				if (!solid(tile_index)) {
-					bool can_go = true;
-					const int dest = mapidx(pos);
 
-					if (water_level(dest)>2 && water_level(tile_index)<3) can_go = false;
+				const auto destidx = mapidx(dest);
+				if (flag(destidx, CAN_STAND_HERE) && destidx != tile_index) {
+					auto can_go = true;
 
-					entity_wants_to_move_message wander_msg{ msg.entity_id, pos };
-					if (can_go && !(pos == *original)) request_move(wander_msg);
+					if (water_level(destidx)>2 && water_level(tile_index)<3) can_go = false;
+
+					if (can_go) move_to(*e, *original, dest);
 				}
 			});
 		}
@@ -105,17 +107,17 @@ namespace systems {
 			using namespace region;
 			move_requests.process_all([](entity_wants_to_move_message msg) {
 				if (!entity(msg.entity_id)) {
-					std::cout << "Oops - move request for entity " << msg.entity_id << ", but entity does not exist\n";
+					glog(log_target::GAME, log_severity::warning, "Oops - move request for entity {0}, but entity does not exist!", msg.entity_id);
 					return;
 				}
 				auto epos = entity(msg.entity_id)->component<position_t>();
 				if (!epos) {
-					std::cout << "Oops - move request for entity " << msg.entity_id << ", but entity does not have a position!\n";
+					glog(log_target::GAME, log_severity::warning, "Oops - move request for entity {0}, but entity does not have a position!", msg.entity_id);
 					return;
 				}
 				position_t origin{ epos->x, epos->y, epos->z };
 				if (origin == msg.destination) {
-					std::cout << "Oops - Moving to same tile, entity " << msg.entity_id << "\n";
+					glog(log_target::GAME, log_severity::warning, "Oops - Moving to same tile, entity {0}", msg.entity_id);
 					return;
 				}
 
@@ -129,30 +131,46 @@ namespace systems {
 				auto slide = entity(msg.entity_id)->component<slidemove_t>();
 				auto initiative = entity(msg.entity_id)->component<initiative_t>();
 
-				const int dX = msg.destination.x - epos->x;
-				const int dY = msg.destination.y - epos->y;
-				const int dZ = msg.destination.z - epos->z;
-				if (dX > 0) {
+				const auto d_x = msg.destination.x - epos->x;
+				const auto d_y = msg.destination.y - epos->y;
+				const auto d_z = msg.destination.z - epos->z;
+				if (d_x > 0 && d_y > 0) {
+					// South-East
+					epos->rotation = 315;
+				}
+				else if (d_x > 0 && d_y < 0) {
+					// North-East
+					epos->rotation = 225;
+				}
+				else if (d_x < 0 && d_y < 0 ) {
+					// North-West
+					epos->rotation = 135;
+				}
+				else if (d_x < 0 && d_y > 0) {
+					// South-West
+					epos->rotation = 45;
+				}
+				else if (d_x > 0) {
 					// East
 					epos->rotation = 270;
 				}
-				else if (dX < 0) {
+				else if (d_x < 0) {
 					// West
 					epos->rotation = 90;
 				}
-				else if (dY < 0) {
+				else if (d_y < 0) {
 					// North
 					epos->rotation = 180;
 				}
-				else if (dY > 0) {
+				else if (d_y > 0) {
 					// South
 					epos->rotation = 0;
 				}
 
 				if (initiative) {
-					const float deltaX = (float)dX / (float)initiative->initiative;
-					const float deltaY = (float)dY / (float)initiative->initiative;
-					const float deltaZ = (float)dZ / (float)initiative->initiative;
+					const auto deltaX = (float)d_x / (float)initiative->initiative;
+					const auto deltaY = (float)d_y / (float)initiative->initiative;
+					const auto deltaZ = (float)d_z / (float)initiative->initiative;
 
 					if (!slide && initiative) {
 						entity(msg.entity_id)->assign(slidemove_t{ deltaX, deltaY, deltaZ, initiative->initiative });
@@ -169,9 +187,9 @@ namespace systems {
 				epos->x = msg.destination.x;
 				epos->y = msg.destination.y;
 				epos->z = msg.destination.z;
-				epos->offsetX = 0.0F - (float)dX;
-				epos->offsetY = 0.0F - (float)dY;
-				epos->offsetZ = 0.0F - (float)dZ;
+				epos->offset_x = 0.0F - (float)d_x;
+				epos->offset_y = 0.0F - (float)d_y;
+				epos->offset_z = 0.0F - (float)d_z;
 
 				// Do vegetation damage
 				const auto idx = mapidx(msg.destination.x, msg.destination.y, msg.destination.z);
@@ -185,9 +203,10 @@ namespace systems {
 					mount_pos->x = epos->x;
 					mount_pos->y = epos->y;
 					mount_pos->z = epos->z;
-					mount_pos->offsetX = epos->offsetX;
-					mount_pos->offsetY = epos->offsetY;
-					mount_pos->offsetZ = epos->offsetZ;
+					mount_pos->offset_x = epos->offset_x;
+					mount_pos->offset_y = epos->offset_y;
+					mount_pos->offset_z = epos->offset_z;
+					mount_pos->rotation = epos->rotation;
 				}
 
 				move_completions.enqueue(entity_moved_message{ msg.entity_id, origin, msg.destination });
@@ -201,6 +220,7 @@ namespace systems {
 			flee_requests.process_all([](entity_wants_to_flee_message msg) {
 				auto pos = entity(msg.entity_id)->component<position_t>();
 				auto other_pos = entity(msg.flee_from_id)->component<position_t>();
+				if (!pos || !other_pos) return;
 
 				if (pos->x > other_pos->x && flag(mapidx(pos->x, pos->y, pos->z), CAN_GO_EAST)) {
 					move_requests.enqueue(entity_wants_to_move_message{ msg.entity_id, position_t{ pos->x + 1, pos->y, pos->z } });

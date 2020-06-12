@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include "main_menu.hpp"
 #include "../bengine/simple_sprite.hpp"
 #include "../global_assets/texture_storage.hpp"
@@ -20,25 +21,31 @@ namespace main_menu {
     static bool world_exists = false;
     static std::string tagline = "";
     static bool show_options = false;
-    const std::string win_options = std::string(ICON_FA_WRENCH) + " Options";
-    const std::string btn_save = std::string(ICON_FA_FLOPPY_O) + " Save Changes";
-    const std::string btn_close = std::string(ICON_FA_TIMES) + " Close";
-    const std::string menu_play = std::string(ICON_FA_PLAY) + " Play the Game";
-    const std::string menu_gen = std::string(ICON_FA_MAP) + " Generate the World";
-    const std::string menu_opts = std::string(ICON_FA_WRENCH) + " Options";
-    const std::string menu_quit = std::string(ICON_FA_TIMES) + " Quit the Game";
+	static const std::string win_options = std::string(ICON_FA_WRENCH) + " Options";
+	static const std::string btn_save = std::string(ICON_FA_FLOPPY_O) + " Save Changes";
+	static const std::string btn_close = std::string(ICON_FA_TIMES) + " Close";
+	static const std::string menu_play = std::string(ICON_FA_PLAY) + " Play the Game";
+	static const std::string menu_gen = std::string(ICON_FA_MAP) + " Generate the World";
+	static const std::string menu_opts = std::string(ICON_FA_WRENCH) + " Options";
+	static const std::string menu_quit = std::string(ICON_FA_TIMES) + " Quit the Game";
 
-    static std::string online_username = "";
+	static const char * texture_size_items = "Tiny (128x128)\0Small (256x256)\0Medium (512x512)\0Large (1024x1024)\0Huge (2048x2048)\0Enormous (4096x4096)\0Maximum (8096x8096)\0\0";
+	static const char * shadowmap_size_items = "Tiny (32x32)\0Small (64x64)\0Medium (128x128)\0Large (256x256)\0Huge (512x512)\0Maximum (1024x1024)\0\0";
+
+    static std::string online_username;
+
+	static int selected_texture_size = 0;
+	static int selected_shadowmap_size = 0;
 
     static std::string get_descriptive_noun() {
         using namespace string_tables;
 
-        bengine::random_number_generator rng;
+        const bengine::random_number_generator rng;
         return string_table(MENU_SUBTITLES)->random_entry(rng);
     }
 
-	void check_world_exists() {
-		if (exists(get_save_path() + std::string("/savegame.dat"))) {
+	void check_world_exists() noexcept {
+		if (exists(save_filename())) {
 			world_exists = true;
 		}
 	}
@@ -58,8 +65,8 @@ namespace main_menu {
             case 8 : tagline = "Stories "; break;
         }
 
-        auto first_noun = get_descriptive_noun();
-        std::string second_noun = first_noun;
+        const auto first_noun = get_descriptive_noun();
+        auto second_noun = first_noun;
         while (second_noun == first_noun) {
             second_noun = get_descriptive_noun();
         }
@@ -67,6 +74,28 @@ namespace main_menu {
         tagline += "of " + first_noun + " and " + second_noun;
 
         online_username = config::game_config.online_username;
+
+		switch (config::game_config.texture_size)
+		{
+		case 128: selected_texture_size = 0; break;
+		case 256: selected_texture_size = 1; break;
+		case 512: selected_texture_size = 2; break;
+		case 1024: selected_texture_size = 3; break;
+		case 2048: selected_texture_size = 4; break;
+		case 4096: selected_texture_size = 5; break;
+		case 8096: selected_texture_size = 6; break;
+		default: selected_texture_size = 0;
+		}
+
+		switch (config::game_config.shadow_map_size)
+		{
+		case 32: selected_shadowmap_size = 0; break;
+		case 64: selected_shadowmap_size = 1; break;
+		case 128: selected_shadowmap_size = 2; break;
+		case 256: selected_shadowmap_size = 3; break;
+		case 512: selected_shadowmap_size = 4; break;
+		case 1024: selected_shadowmap_size = 5; break;
+		}
 
         call_home("MainMenu", "Opened");
 
@@ -77,11 +106,13 @@ namespace main_menu {
 		return window_width / 2.0f - text_width / 2.0f;
 	}
 
-    void tick(const double &duration_ms) {
-        if (!initialized) init();
+    void tick(const double &duration_ms) noexcept {
+		if (!initialized) {
+			init();
+		}
 
-        ImVec4 red{1.0f, 0.0f, 0.0f, 1.0f};
-        ImVec4 yellow{1.0f, 1.0f, 0.0f, 1.0f};
+        const ImVec4 red{1.0f, 0.0f, 0.0f, 1.0f};
+        const ImVec4 yellow{1.0f, 1.0f, 0.0f, 1.0f};
         const std::string kylah = "To Kylah of the West and Jakie Monster - The Bravest Little Warriors of Them All.";
 
         int screen_w, screen_h;
@@ -109,23 +140,24 @@ namespace main_menu {
 
         // Main Menu Buttons
         if (!show_options) {
-			constexpr int BUTTON_ADD = 20;
+			constexpr auto button_add = 20;
 			const auto tagline_size = ImGui::CalcTextSize(tagline.c_str());
-			const auto kylah_size = ImGui::CalcTextSize(kylah.c_str());
-			const float window_width = std::max(tagline_size.x, kylah_size.x);
-			const float play_size = ImGui::CalcTextSize(menu_play.c_str()).x + BUTTON_ADD;
-			const float gen_size = ImGui::CalcTextSize(menu_gen.c_str()).x + BUTTON_ADD;
-			const float opts_size = ImGui::CalcTextSize(menu_opts.c_str()).x + BUTTON_ADD;
-			const float quit_size = ImGui::CalcTextSize(menu_quit.c_str()).x + BUTTON_ADD;
-			const float tagline_indent = calc_indent(window_width, tagline_size.x);
-			const float play_indent = calc_indent(window_width, play_size);
-			const float gen_indent = calc_indent(window_width, gen_size);
-			const float opts_indent = calc_indent(window_width, opts_size);
-			const float quit_indent = calc_indent(window_width, quit_size);
-			const float kylah_indent = calc_indent(window_width, kylah_size.x);
+			auto kylah_size = ImGui::CalcTextSize(kylah.c_str());
+			kylah_size.x += 50;
+			const auto window_width = std::max(tagline_size.x, kylah_size.x);
+			const auto play_size = ImGui::CalcTextSize(menu_play.c_str()).x + button_add;
+			const auto gen_size = ImGui::CalcTextSize(menu_gen.c_str()).x + button_add;
+			const auto opts_size = ImGui::CalcTextSize(menu_opts.c_str()).x + button_add;
+			const auto quit_size = ImGui::CalcTextSize(menu_quit.c_str()).x + button_add;
+			const auto tagline_indent = calc_indent(window_width, tagline_size.x);
+			const auto play_indent = calc_indent(window_width, play_size);
+			const auto gen_indent = calc_indent(window_width, gen_size);
+			const auto opts_indent = calc_indent(window_width, opts_size);
+			const auto quit_indent = calc_indent(window_width, quit_size);
+			const auto kylah_indent = calc_indent(window_width + 12.0f, kylah_size.x);
 
 			ImGui::SetNextWindowPosCenter();
-            ImGui::Begin("MainMenu", nullptr, ImVec2{window_width, 400}, 0.0f,
+            ImGui::Begin("MainMenu", nullptr, ImVec2{window_width + 25.0f, 400}, 0.0f,
                          ImGuiWindowFlags_AlwaysAutoResize + ImGuiWindowFlags_NoCollapse + ImGuiWindowFlags_NoTitleBar);
 			ImGui::SetCursorPosX(tagline_indent);
             ImGui::TextColored(red, "%s", tagline.c_str());
@@ -185,7 +217,83 @@ namespace main_menu {
             ImGui::Text("Show Entity ID Numbers");
             ImGui::SameLine();
             ImGui::Checkbox("## Entity ID", &game_config.show_entity_ids);
+
+			ImGui::Text("Texture Size");
+			ImGui::SameLine();
+			ImGui::Combo("## TexSize", &selected_texture_size, texture_size_items);
+
+			ImGui::Text("Shadow Map Size");
+			ImGui::SameLine();
+			ImGui::Combo("## ShadowSize", &selected_shadowmap_size, shadowmap_size_items);
+
+			ImGui::Text("Always update shadows (slower)");
+			ImGui::SameLine();
+			ImGui::Checkbox("## Always shadow", &game_config.always_update_shadows);
+
+			ImGui::Text("Mip Levels (0 = automatic, square root of texture size)");
+			ImGui::SameLine();
+			ImGui::InputInt("##MIP", &game_config.mip_levels, 1, 1);
+
+			ImGui::Text("Render ASCII lighting");
+			ImGui::SameLine();
+			ImGui::Checkbox("## ASCII lighting", &game_config.render_ascii_light);
+
+			ImGui::Text("Disable 3D lighting");
+			ImGui::SameLine();
+			ImGui::Checkbox("## 3D lighting", &game_config.disable_lighting);
+
+			ImGui::Text("Disable HDR");
+			ImGui::SameLine();
+			ImGui::Checkbox("## HDR", &game_config.disable_hdr);
+
+			ImGui::Text("Disable Screen Space Ambient Occlusion");
+			ImGui::SameLine();
+			ImGui::Checkbox("## SSAO", &game_config.disable_ssao);
+
+			ImGui::Text("ASCII mode - number of levels down to look (0 disables)");
+			ImGui::SameLine();
+			ImGui::InputInt("##asciidive", &game_config.num_ascii_levels_below, 1, 1);
+
+			ImGui::Text("Shadow divisor; higher is less-frequent shadow updates");
+			ImGui::SameLine();
+			ImGui::InputInt("##shadowdiv", &game_config.shadow_divisor, 1, 1);
+			if (game_config.shadow_divisor < 1) game_config.shadow_divisor = 1;
+
+			ImGui::Text("Ticks per ms. Recommended at 33.");
+			ImGui::SameLine();
+			ImGui::InputFloat("##ticksperms", &game_config.ticks_per_ms, 1, 1);
+
+			ImGui::Text("Vsync");
+			ImGui::SameLine();
+			ImGui::Checkbox("## vsync", &game_config.vsync);
+
+			ImGui::Text("Parallax");
+			ImGui::SameLine();
+			ImGui::Checkbox("## parallax", &game_config.parallax);
+
             if (ImGui::Button(btn_save.c_str())) {
+				switch (selected_texture_size)
+				{
+				case 0: game_config.texture_size = 128; break;
+				case 1: game_config.texture_size = 256; break;
+				case 2: game_config.texture_size = 512; break;
+				case 3: game_config.texture_size = 1024; break;
+				case 4: game_config.texture_size = 2048; break;
+				case 5: game_config.texture_size = 4096; break;
+				case 6: game_config.texture_size = 8192; break;
+				default: game_config.texture_size = 512;
+				}
+
+				switch (selected_shadowmap_size)
+				{
+				case 0: game_config.shadow_map_size = 32; break;
+				case 1: game_config.shadow_map_size = 64; break;
+				case 2: game_config.shadow_map_size = 128; break;
+				case 3: game_config.shadow_map_size = 256; break;
+				case 4: game_config.shadow_map_size = 512; break;
+				case 5: game_config.shadow_map_size = 1024; break;
+				}
+
                 game_config.online_username = std::string(online_username);
                 game_config.save();
                 show_options = false;

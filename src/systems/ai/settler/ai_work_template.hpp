@@ -15,11 +15,12 @@
 #include "../../../raws/defs/material_def_t.hpp"
 #include "../../../raws/defs/item_def_t.hpp"
 #include "../../../global_assets/rng.hpp"
-#include "../../../bengine/path_finding.hpp"
 #include "../../helpers/pathfinding.hpp"
 #include "../../../components/items/item_stored.hpp"
 #include "../../../components/items/item_carried.hpp"
 #include "../inventory_system.hpp"
+#include "../../../planet/region/region.hpp"
+#include "../../physics/movement_system.hpp"
 
 template<typename TAG>
 class ai_work_template {
@@ -49,8 +50,8 @@ public:
 		});
 	}
 
-	void move_to(const std::size_t &entity_id, const position_t &destination) const {
-		systems::movement::move_to(entity_id, destination);
+	void move_to(const int &entity_id, const position_t &pos, const position_t &destination) const {
+		systems::movement::move_to(*bengine::entity(entity_id), pos, destination);
 		//emit_deferred(entity_wants_to_move_message{ entity_id, destination });
 	}
 
@@ -68,7 +69,7 @@ public:
 		else {
 			// Path towards it
 			position_t destination = map.find_destination(pos);
-			move_to(e.id, destination);
+			move_to(e.id, pos, destination);
 		}
 	}
 
@@ -117,9 +118,9 @@ public:
 		tag.current_path->steps.pop_front();
 		if (next_step.x > 0 && next_step.x < REGION_WIDTH && next_step.y > 0 &&
 			next_step.y < REGION_HEIGHT && next_step.z > 0 && next_step.z < REGION_DEPTH
-			&& region::flag(mapidx(next_step), CAN_STAND_HERE))
+			&& region::flag(mapidx(next_step), tile_flags::CAN_STAND_HERE))
 		{
-			move_to(e.id, next_step);
+			move_to(e.id, pos, next_step);
 		}
 		else {
 			// We couldn't get there

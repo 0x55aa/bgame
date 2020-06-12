@@ -1,12 +1,77 @@
 #include "shaders.hpp"
 #include "gl_include.hpp"
-#include <vector>
 #include <fstream>
 
 namespace bengine {
 
+	unsigned int load_shaders(const char * file_path)
+	{
+		glog(log_target::LOADER, log_severity::info, "Loading compute shader: {0}", file_path);
+
+		// Create the shaders
+		GLuint ShaderID = glCreateShader(GL_COMPUTE_SHADER);
+
+		// Read the Vertex Shader code from the file
+		std::string ShaderCode;
+		std::ifstream ShaderStream(file_path, std::ios::in);
+		if (ShaderStream.is_open()) {
+			std::string Line = "";
+			while (getline(ShaderStream, Line))
+				ShaderCode += "\n" + Line;
+			ShaderStream.close();
+		}
+		else {
+			glog(log_target::LOADER, log_severity::error, "Impossible to open {0}. Are you in the right directory ? Don't forget to read the FAQ !\n", file_path);
+			getchar();
+			return 0;
+		}
+
+		GLint Result = GL_FALSE;
+		int InfoLogLength;
+
+
+		// Compile Vertex Shader
+		char const * VertexSourcePointer = ShaderCode.c_str();
+		glShaderSource(ShaderID, 1, &VertexSourcePointer, NULL);
+		glCompileShader(ShaderID);
+
+		// Check Vertex Shader
+		glGetShaderiv(ShaderID, GL_COMPILE_STATUS, &Result);
+		glGetShaderiv(ShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+		if (InfoLogLength > 0) {
+			std::vector<char> VertexShaderErrorMessage(InfoLogLength + 1);
+			glGetShaderInfoLog(ShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
+			glog(log_target::LOADER, log_severity::error, "{0}", &VertexShaderErrorMessage[0]);
+		}
+
+		// Link the program
+		//printf("Linking program\n");
+		GLuint ProgramID = glCreateProgram();
+		glAttachShader(ProgramID, ShaderID);
+		glLinkProgram(ProgramID);
+
+		// Check the program
+		glGetProgramiv(ProgramID, GL_LINK_STATUS, &Result);
+		glGetProgramiv(ProgramID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+		if (InfoLogLength > 0) {
+			std::vector<char> ProgramErrorMessage(InfoLogLength + 1);
+			glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
+			glog(log_target::LOADER, log_severity::error, "{0}", &ProgramErrorMessage[0]);
+		}
+
+		glDetachShader(ProgramID, ShaderID);
+		glDeleteShader(ShaderID);
+
+		glog(log_target::LOADER, log_severity::info, "Setup as shader # {0}", ProgramID);
+
+		return ProgramID;
+	}
+
+
     unsigned int load_shaders(const char * vertex_file_path,const char * fragment_file_path)
     {
+		glog(log_target::LOADER, log_severity::info, "Loading shader: {0} {1}", vertex_file_path, fragment_file_path);
+
         // Create the shaders
         GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
         GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
@@ -20,7 +85,7 @@ namespace bengine {
                 VertexShaderCode += "\n" + Line;
             VertexShaderStream.close();
         }else{
-            printf("Impossible to open %s. Are you in the right directory ? Don't forget to read the FAQ !\n", vertex_file_path);
+            glog(log_target::LOADER, log_severity::error, "Impossible to open {0}. Are you in the right directory ? Don't forget to read the FAQ !\n", vertex_file_path);
             getchar();
             return 0;
         }
@@ -40,7 +105,6 @@ namespace bengine {
 
 
         // Compile Vertex Shader
-        //printf("Compiling shader : %s\n", vertex_file_path);
         char const * VertexSourcePointer = VertexShaderCode.c_str();
         glShaderSource(VertexShaderID, 1, &VertexSourcePointer , NULL);
         glCompileShader(VertexShaderID);
@@ -51,7 +115,7 @@ namespace bengine {
         if ( InfoLogLength > 0 ){
             std::vector<char> VertexShaderErrorMessage(InfoLogLength+1);
             glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
-            //printf("%s\n", &VertexShaderErrorMessage[0]);
+			glog(log_target::LOADER, log_severity::error, "{0}", &VertexShaderErrorMessage[0]);
         }
 
 
@@ -68,7 +132,7 @@ namespace bengine {
         if ( InfoLogLength > 0 ){
             std::vector<char> FragmentShaderErrorMessage(InfoLogLength+1);
             glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
-            printf("%s\n", &FragmentShaderErrorMessage[0]);
+			glog(log_target::LOADER, log_severity::error, "{0}", &FragmentShaderErrorMessage[0]);
         }
 
         // Link the program
@@ -84,9 +148,8 @@ namespace bengine {
         if ( InfoLogLength > 0 ){
             std::vector<char> ProgramErrorMessage(InfoLogLength+1);
             glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
-            printf("%s\n", &ProgramErrorMessage[0]);
+			glog(log_target::LOADER, log_severity::error, "{0}", &ProgramErrorMessage[0]);
         }
-
 
         glDetachShader(ProgramID, VertexShaderID);
         glDetachShader(ProgramID, FragmentShaderID);
@@ -94,7 +157,7 @@ namespace bengine {
         glDeleteShader(VertexShaderID);
         glDeleteShader(FragmentShaderID);
 
-		std::cout << "Setup as shader #" << ProgramID << "\n";
+		glog(log_target::LOADER, log_severity::info, "Setup as shader # {0}", ProgramID);
 
         return ProgramID;
     }
@@ -116,7 +179,7 @@ namespace bengine {
 			VertexShaderStream.close();
 		}
 		else {
-			printf("Impossible to open %s. Are you in the right directory ? Don't forget to read the FAQ !\n", vertex_file_path);
+			glog(log_target::LOADER, log_severity::error, "Impossible to open {0}. Are you in the right directory ? Don't forget to read the FAQ !", vertex_file_path);
 			getchar();
 			return 0;
 		}
@@ -157,7 +220,7 @@ namespace bengine {
 		if (InfoLogLength > 0) {
 			std::vector<char> VertexShaderErrorMessage(InfoLogLength + 1);
 			glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
-			printf("%s\n", &VertexShaderErrorMessage[0]);
+			glog(log_target::LOADER, log_severity::error, "{0}", &VertexShaderErrorMessage[0]);
 		}
 
 
@@ -174,7 +237,7 @@ namespace bengine {
 		if (InfoLogLength > 0) {
 			std::vector<char> FragmentShaderErrorMessage(InfoLogLength + 1);
 			glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
-			printf("%s\n", &FragmentShaderErrorMessage[0]);
+			glog(log_target::LOADER, log_severity::error, "{0}", &FragmentShaderErrorMessage[0]);
 		}
 
 		// Compile Geometry Shader
@@ -189,7 +252,7 @@ namespace bengine {
 		if (InfoLogLength > 0) {
 			std::vector<char> GeoemetryShaderErrorMessage(InfoLogLength + 1);
 			glGetShaderInfoLog(GeometryShaderID, InfoLogLength, NULL, &GeoemetryShaderErrorMessage[0]);
-			printf("%s\n", &GeoemetryShaderErrorMessage[0]);
+			glog(log_target::LOADER, log_severity::error, "{0}", &GeoemetryShaderErrorMessage[0]);
 		}
 
 		// Link the program
@@ -206,7 +269,7 @@ namespace bengine {
 		if (InfoLogLength > 0) {
 			std::vector<char> ProgramErrorMessage(InfoLogLength + 1);
 			glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
-			printf("%s\n", &ProgramErrorMessage[0]);
+			glog(log_target::LOADER, log_severity::error, "{0}", &ProgramErrorMessage[0]);
 		}
 
 
@@ -227,14 +290,34 @@ namespace bengine {
 		shader_id = load_shaders(vertex.c_str(), fragment.c_str());
 	}
 
-	void base_shader_t::use() {
+	void base_shader_t::load_shader(const std::string vertex, const std::string fragment, const std::string geometry) {
+		shader_id = load_shaders(vertex.c_str(), fragment.c_str(), geometry.c_str());
+	}
+
+	void base_shader_t::use() const {
 		glUseProgram(shader_id);
 	}
 
-	int base_shader_t::get_uniform(const std::string name) {
-		int result = glGetUniformLocation(shader_id, name.c_str());
-		std::cout << "Uniform [" << name << "] assigned to shader " << shader_id << ", slot " << result << "\n";
+	int base_shader_t::get_uniform(const std::string name) const {
+		const auto result = glGetUniformLocation(shader_id, name.c_str());
+		glog(log_target::LOADER, log_severity::info, "Uniform [{0}] assigned to shader {1}, slot {2}", name, shader_id, result);
 		glCheckError();
 		return result;
 	}
+
+	unsigned int base_shader_t::get_block_index(const std::string &name) const
+    {
+		const auto result = glGetUniformBlockIndex(shader_id, name.c_str());
+		glog(log_target::LOADER, log_severity::info, "Uniform block {0} assigned to index {1}", name, result);
+		glCheckError();
+		return result;
+    }
+
+	unsigned int base_shader_t::get_resource_index(const std::string &name) const
+    {
+		const auto result = glGetProgramResourceIndex(shader_id, GL_SHADER_STORAGE_BLOCK, name.c_str());
+		glog(log_target::LOADER, log_severity::info, "Uniform block {0} assigned to index {1}", name, result);
+		glCheckError();
+		return result;
+    }
 }

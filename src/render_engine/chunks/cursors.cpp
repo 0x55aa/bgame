@@ -2,7 +2,6 @@
 #include "../../systems/mouse.hpp"
 #include "../../global_assets/texture_storage.hpp"
 #include "../../global_assets/shader_storage.hpp"
-#include "../fbo/base_lit_buffer.hpp"
 #include "../../global_assets/game_mode.hpp"
 #include "../../global_assets/game_designations.hpp"
 #include "../../systems/gui/particle_system.hpp"
@@ -12,6 +11,8 @@
 #include "../../systems/gui/design_harvest.hpp"
 #include "../../bengine/gl_include.hpp"
 #include "../../systems/gui/design_architecture.hpp"
+#include "../../planet/region/region.hpp"
+#include "../shaders/cursor_shader.hpp"
 
 namespace render {
 	static unsigned int cursors_vao = 0;
@@ -90,9 +91,9 @@ namespace render {
 		std::vector<float> data;
 
 		// Add an entry for the mouse cursor
-		const auto mouse_x = static_cast<float>(systems::mouse_wx);
-		const auto mouse_y = static_cast<float>(systems::mouse_wy);
-		const auto mouse_z = static_cast<float>(systems::mouse_wz);
+		const auto mouse_x = std::floor(systems::mouse_wx);
+		const auto mouse_y = std::floor(systems::mouse_wy);
+		const auto mouse_z = std::floor(systems::mouse_wz);
 		if (!(game_master_mode == DESIGN && game_design_mode == BUILDING)) {
 			add_cube_geometry(data, n_elements_cursor_elements, mouse_x, mouse_y, mouse_z, 1, 1, 0);
 		}
@@ -219,9 +220,10 @@ namespace render {
 
 	void render_cursor(glm::mat4 &camera_projection_matrix, glm::mat4 &camera_modelview_matrix) {
 		// Assign the VAO, texture array, uniforms etc.
-		glUseProgram(assets::cursor_shader);
-		glUniformMatrix4fv(glGetUniformLocation(assets::cursor_shader, "projection_matrix") , 1, GL_FALSE, glm::value_ptr(camera_projection_matrix));
-		glUniformMatrix4fv(glGetUniformLocation(assets::cursor_shader, "view_matrix"), 1, GL_FALSE, glm::value_ptr(camera_modelview_matrix));
+		glUseProgram(assets::cursor_shader->shader_id);
+		glUniformMatrix4fv(assets::cursor_shader->projection_matrix, 1, GL_FALSE, glm::value_ptr(camera_projection_matrix));
+		glUniformMatrix4fv(assets::cursor_shader->view_matrix, 1, GL_FALSE, glm::value_ptr(camera_modelview_matrix));
+		glUniform1i(assets::cursor_shader->texture_array, 0);
 		glBindVertexArray(cursors_vao);		
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D_ARRAY, assets::cursor_texture_array);

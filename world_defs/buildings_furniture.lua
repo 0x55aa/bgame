@@ -11,7 +11,7 @@ buildings["cryo_bed"] = {
 };
 
 buildings["storage_locker"] = {
-    name = "A storage locker",
+    name = "Storage locker",
     description = "A ship-mounted storage locker, pre-shipped with enough to survive settling a new world.",
     components = { { item="storage_locker", qty=1} },
     skill = { name="Construction", difficulty=10 },
@@ -55,9 +55,9 @@ buildings["door"] = {
     description = "A simple door",
     components = { { item="door", qty=1 } },
     skill = { name="Construction", difficulty=10 },
-    provides = { door={energy_cost=0}, signal={energy_cost=0} },
+    provides = { door={energy_cost=0, alternate_vox=voxelId("door_closed")}, signal={energy_cost=0} },
     render_rex = "door.xp",
-    vox=voxelId("door_ground")
+    vox=voxelId("door_open")
 };
 
 buildings["energy_door"] = {
@@ -65,9 +65,19 @@ buildings["energy_door"] = {
     description = "A force-field door, ideal for keeping out bad guys",
     components = { { item="door", qty=1 } },
     skill = { name="Construction", difficulty=10 },
-    provides = { door={energy_cost=10} },
+    provides = { door={energy_cost=10, alternate_vox=voxelId("energy_door_closed")} },
     render_rex = "door.xp",
-    vox=voxelId("door_ground")
+    vox=voxelId("energy_door_open")
+};
+
+buildings["floodgate"] = {
+    name = "Floodgate",
+    description = "A heavy floodgate, designed to keep water out.",
+    components = { { item="floodgate", qty=1 } },
+    skill = { name="Construction", difficulty=10 },
+    provides = { door={energy_cost=10, alternate_vox=voxelId("floodgate_closed")} },
+    render_rex = "door.xp",
+    vox=voxelId("floodgate_open")
 };
 
 buildings["bed_simple"] = {

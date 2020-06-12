@@ -1,14 +1,13 @@
+#include "stdafx.h"
 #include "wish_mode.hpp"
 #include "../../bengine/IconsFontAwesome.h"
 #include "../../bengine/imgui.h"
-#include "../../bengine/imgui_impl_glfw_gl3.h"
 #include "../../global_assets/game_mode.hpp"
 #include "../../planet/region/region.hpp"
 #include "../../global_assets/rng.hpp"
-#include "../../bengine/ecs.hpp"
-#include "../../components/position.hpp"
-#include "../../components/explosion_t.hpp"
 #include "../../global_assets/debug_flags.hpp"
+#include "../../utils/system_log.hpp"
+#include "../../global_assets/game_config.hpp"
 
 namespace systems {
 	namespace wishmode {
@@ -20,8 +19,8 @@ namespace systems {
 		};
 
 		static std::vector<wish_t> wishes {
-			wish_t{ "show flags", []() { debug::show_flags = !debug::show_flags; } },
-			wish_t{ "show distance", []() { debug::show_dijkstra = !debug::show_dijkstra; }},
+			wish_t{ "flags", []() { debug::show_flags = !debug::show_flags; debug::show_dijkstra = !debug::show_dijkstra; } },
+			wish_t{ "fps", []() { debug::show_fps = !debug::show_fps; } },
 			wish_t{ "sploosh", []() {
 			for (int y = 1; y<REGION_HEIGHT - 1; ++y) {
 				for (int x = 1; x<REGION_WIDTH - 1; ++x) {
@@ -52,6 +51,17 @@ namespace systems {
 			}},
 			wish_t{ "profile", [] {
 				debug::show_profiler = !debug::show_profiler;
+			}},
+			wish_t{ "parallax", [] { config::game_config.parallax = !config::game_config.parallax; }},
+			wish_t{ "lighting", [] { config::game_config.disable_lighting = !config::game_config.disable_lighting; } },
+			wish_t{ "sploosh", [] {
+				for (int y=0; y<REGION_HEIGHT; ++y)
+				{
+					for (int x=0; x<REGION_WIDTH; ++x)
+					{
+						region::set_water_level(mapidx(x, y, REGION_DEPTH - 2), 10);
+					}
+				}
 			}}
 		};
 
@@ -63,9 +73,16 @@ namespace systems {
 
 		void run(const double &duration_ms) {
 			ImGui::Begin("Make A Wish - Debug Command", nullptr, ImVec2{ 400, 100 }, ImGuiWindowFlags_AlwaysAutoResize);
+
+			const auto logs = ten_most_recent_log_entries(1);
+			for (const auto &s : logs)
+			{
+				ImGui::TextWrapped("%s", s.c_str());
+			}
+
 			ImGui::InputText("Wish Command", wish_command, 255);
 			if (ImGui::Button("Wish!")) {
-				std::string wishstring(wish_command);
+				const std::string wishstring(wish_command);
 				make_wish(wishstring);
 			}
 			ImGui::SameLine();

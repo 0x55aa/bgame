@@ -1,15 +1,14 @@
+#include "stdafx.h"
 #include "creature_attacks_system.hpp"
 #include "../../utils/thread_safe_message_queue.hpp"
-#include "../../components/species.hpp"
 #include "../../raws/creatures.hpp"
 #include "../../raws/defs/raw_creature_t.hpp"
-#include "../../components/game_stats.hpp"
 #include "../helpers/weapons_helper.hpp"
 #include "../gui/log_system.hpp"
-#include "../../components/logger.hpp"
 #include "../../global_assets/rng.hpp"
 #include "damage_system.hpp"
 #include "../gui/particle_system.hpp"
+#include "../../utils/system_log.hpp"
 
 namespace systems {
 	namespace creature_attacks {
@@ -30,12 +29,12 @@ namespace systems {
 				if (!attacker) return;
 				auto attack_species = attacker->component<species_t>();
 				if (!attack_species) {
-					std::cout << "WARNING: Attacker has no species\n";
+					glog(log_target::GAME, log_severity::warning, "WARNING: Attacker has no species");
 					return;
 				}
 				auto creaturefinder = get_creature_def(attack_species->tag);
 				if (!creaturefinder) {
-					std::cout << "Unable to find creature: " << attack_species->tag << "\n";
+					glog(log_target::GAME, log_severity::warning, "Unable to find creature: {0}", attack_species->tag);
 					return;
 				}
 				auto creature = *creaturefinder;

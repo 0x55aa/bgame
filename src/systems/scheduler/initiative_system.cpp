@@ -1,14 +1,5 @@
+#include "stdafx.h"
 #include "initiative_system.hpp"
-#include "../../components/position.hpp"
-#include "../../components/slidemove.hpp"
-#include "../../components/settler_ai.hpp"
-#include "../../components/sentient_ai.hpp"
-#include "../../components/grazer_ai.hpp"
-#include "../../components/riding_t.hpp"
-#include "../../components/buildings/turret_t.hpp"
-#include "../../components/initiative.hpp"
-#include "../../components/ai_tags/ai_tag_my_turn.hpp"
-#include "../../components/game_stats.hpp"
 #include "../../global_assets/rng.hpp"
 
 namespace systems {
@@ -27,9 +18,9 @@ namespace systems {
 					// Remove any sliding
 					auto pos = e.component<position_t>();
 					if (pos) {
-						pos->offsetX = 0.0F;
-						pos->offsetY = 0.0F;
-						pos->offsetZ = 0.0F;
+						pos->offset_x = 0.0F;
+						pos->offset_y = 0.0F;
+						pos->offset_z = 0.0F;
 					}
 					auto slide = e.component<slidemove_t>();
 					if (slide) {
@@ -87,9 +78,9 @@ namespace systems {
 					auto slide = e.component<slidemove_t>();
 					auto pos = e.component<position_t>();
 					if (slide && pos && slide->lifespan > 0) {
-						pos->offsetX += slide->offsetX;
-						pos->offsetY += slide->offsetY;
-						pos->offsetZ += slide->offsetZ;
+						pos->offset_x += slide->offsetX;
+						pos->offset_y += slide->offsetY;
+						pos->offset_z += slide->offsetZ;
 						--slide->lifespan;
 					}
 				}

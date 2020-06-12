@@ -1,171 +1,142 @@
+#include "stdafx.h"
 #include "fluid_system.hpp"
 #include "../../planet/region/region.hpp"
-#include "../../global_assets/game_planet.hpp"
 #include "../../global_assets/rng.hpp"
-#include "../../components/position.hpp"
-#include "../../components/game_stats.hpp"
-#include "../../components/health.hpp"
-#include "../../components/water_spawner.hpp"
+#include "../../bengine/gl_include.hpp"
+#include "../gui/particle_system.hpp"
+#include "../damage/damage_system.hpp"
+#include "../../bengine/gl_include.hpp"
+#include "../../global_assets/shader_storage.hpp"
 #include "../../render_engine/chunks/chunks.hpp"
 
 using namespace bengine;
 using namespace region;
+using namespace tile_flags;
 
 namespace systems {
 	namespace fluids {
-		std::vector<bool> water_stable(REGION_TILES_COUNT);
 
-		int cycle = 1;
+		bool water_dirty = true;
+		static bool made_ssbos = false;
+		unsigned int water_level_ssbo;
+		unsigned int water_particles_ssbo;
 
-		inline void do_cell(const int &x, const int &y, const int &z, const int &idx, bool &did_something)
+		unsigned int terrain_flags_buffer_idx;
+		unsigned int water_level_idx;
+		unsigned int water_particles_idx;
+		
+		static std::vector<GLuint> build_water_as_particles_with_evaporation()
 		{
-			water_stable[idx] = true;
+			//const auto evaporate = rng.roll_dice(1, 100) == 1;
 
-			const auto idx_below = mapidx(x, y, z - 1);
-			// Is there space below? If so, fall
-			if (!solid(idx_below) && water_level(idx_below)<10) {
-				// Move a water cell down
-				add_water(idx_below);
-				remove_water(idx);
-				calc_render(idx);
-				calc_render(idx_below);
-				did_something = true;
-			}
-			else {
-				const uint8_t my_water_level = water_level(idx);
-				const int idx_west = mapidx(x - 1, y, z);
-				const int idx_east = mapidx(x + 1, y, z);
-				const int idx_north = mapidx(x, y - 1, z);
-				const int idx_south = mapidx(x, y + 1, z);
-				if (x>0 && !solid(idx_west) && water_level(idx_west)<my_water_level && water_level(idx_west)<10) {
-					add_water(idx_west);
-					remove_water(idx);
-					calc_render(idx);
-					calc_render(idx_west);
-					did_something = true;
-					chunks::mark_chunk_dirty_by_tileidx(idx);
-				}
-				else if (x<REGION_WIDTH - 1 && !solid(idx_east) && water_level(idx_east)<my_water_level && water_level(idx_east)<10) {
-					add_water(idx_east);
-					remove_water(idx);
-					calc_render(idx);
-					calc_render(idx_east);
-					did_something = true;
-					chunks::mark_chunk_dirty_by_tileidx(idx);
-				}
-				else if (y>0 && !solid(idx_north) && water_level(idx_north)<my_water_level && water_level(idx_north)<10) {
-					add_water(idx_north);
-					remove_water(idx);
-					calc_render(idx);
-					calc_render(idx_north);
-					did_something = true;
-					chunks::mark_chunk_dirty_by_tileidx(idx);
-				}
-				else if (y<REGION_HEIGHT - 1 && !solid(idx_south) && water_level(idx_south)<my_water_level && water_level(idx_south)<10) {
-					add_water(idx_south);
-					remove_water(idx);
-					calc_render(idx);
-					calc_render(idx_south);
-					did_something = true;
-					chunks::mark_chunk_dirty_by_tileidx(idx);
+			std::vector<GLuint> water;
+			for (auto i=0; i < REGION_TILES_COUNT; ++i)
+			{
+				auto wl = water_level(i);
+				if (wl > 0)
+				{
+					water.emplace_back(static_cast<GLuint>(i));
 				}
 			}
-
-			// Mark as unstable
-			if (did_something) {
-				const int idx_west = mapidx(x - 1, y, z);
-				const int idx_east = mapidx(x + 1, y, z);
-				const int idx_north = mapidx(x, y - 1, z);
-				const int idx_south = mapidx(x, y + 1, z);
-				const int idx_down = mapidx(x, y, z - 1);
-				const int idx_up = mapidx(x, y, z + 1);
-				water_stable[idx] = false;
-				if (x>0 && water_level(idx_west)>0) water_stable[idx_west] = false;
-				if (x<REGION_WIDTH - 1 && water_level(idx_east)>0) water_stable[idx_east] = false;
-				if (y>0 && water_level(idx_north)>0) water_stable[idx_north] = false;
-				if (y<REGION_HEIGHT - 1 && water_level(idx_south)>0) water_stable[idx_south] = false;
-				if (z>0 && water_level(idx_down)>0) water_stable[idx_down] = false;
-				if (z<REGION_DEPTH - 1 && water_level(idx_up)>0) water_stable[idx_up] = false;
-			}
+			return water;
 		}
 
-		inline void do_layer(const int &z, bool &did_something) {
-			for (int y = 1; y<REGION_HEIGHT - 1; ++y) {
-				for (int x = 1; x<REGION_WIDTH - 1; ++x) {
-					const auto idx = mapidx(x, y, z);
-					if (water_level(idx)>0 && !water_stable[idx]) {
-						do_cell(x, y, z, idx, did_something);
-					}
-				}
-			}
-		}
+		static std::vector<GLuint> wp;
 
-		void do_fluids()
+		void copy_to_gpu()
 		{
-			bool did_something = false;
-
-			int start_z, end_z;
-
-			constexpr int ONE_QUARTER = REGION_DEPTH / 4;
-			constexpr int ONE_HALF = REGION_DEPTH / 2;
-			constexpr int THREE_QUARTERS = ONE_QUARTER * 3;
-			int C = cycle % 4;
-			switch (C) {
-			case 0: { start_z = 2; end_z = ONE_QUARTER; } break;
-			case 1: { start_z = ONE_QUARTER; end_z = ONE_HALF; } break;
-			case 2: { start_z = ONE_HALF; end_z = THREE_QUARTERS; } break;
-			case 3: { start_z = THREE_QUARTERS; end_z = REGION_DEPTH - 1; } break;
-			}
-
-			for (int z = start_z; z<end_z; ++z) {
-				do_layer(z, did_something);
-			}
-			++cycle;
-
-			if (did_something) {
-				//emit(map_dirty_message{});
-				//emit(map_rerender_message{});
-			}
-
-			each<water_spawner_t, position_t>([](entity_t &e, water_spawner_t &w, position_t &pos) {
-				const auto idx = mapidx(pos.x, pos.y, pos.z);
-				if (w.spawner_type == 1 || w.spawner_type == 2) {
-					// TODO: When rainfall is implemented, type 1 only spawns when it rains
-					if (water_level(idx) < 10) {
-						set_water_level(idx, 10);
-						chunks::mark_chunk_dirty_by_tileidx(idx);
-					}
-				}
-				else {
-					// Type 3 removes water - used to make rivers flow downhill
-					if (water_level(idx) > 0) {
-						set_water_level(idx, 0);
-						chunks::mark_chunk_dirty_by_tileidx(idx);
-					}
+			// Water creation and destruction (We're doing this now so that we're copying the correct data to the GPU)
+			bengine::each<water_spawner_t, position_t>([](entity_t &e, water_spawner_t &w, position_t &pos)
+			{
+				switch (w.spawner_type)
+				{
+				case 0: // 0 deletes all water
+				{
+					const auto idx = mapidx(pos);
+					if (region::water_level(idx) > 0) region::set_water_level(idx, 0);
+				} break;
+				case 1: // 1 adds water
+				{
+					const auto idx = mapidx(pos);
+					if (region::water_level(idx) < 10) region::set_water_level(idx, 10);
+				} break;
 				}
 			});
+
+			wp = build_water_as_particles_with_evaporation();
+
+			if (!made_ssbos)
+			{
+				made_ssbos = true;
+				glGenBuffers(1, &water_level_ssbo);
+				glGenBuffers(1, &water_particles_ssbo);
+
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, water_level_ssbo);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint32_t) * region::get_water_level()->size(), &region::get_water_level()->operator[](0), GL_DYNAMIC_COPY);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, water_particles_ssbo);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint32_t) * wp.size(), &wp[0], GL_DYNAMIC_COPY);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+				terrain_flags_buffer_idx = glGetProgramResourceIndex(assets::fluid_shader, GL_SHADER_STORAGE_BLOCK, "terrain_flags");
+				water_level_idx = glGetProgramResourceIndex(assets::fluid_shader, GL_SHADER_STORAGE_BLOCK, "water_level");
+				water_particles_idx = glGetProgramResourceIndex(assets::fluid_shader, GL_SHADER_STORAGE_BLOCK, "water_particles");
+			} else
+			{
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, water_level_ssbo);
+				GLvoid* p = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY);
+				memcpy(p, &region::get_water_level()->operator[](0), sizeof(uint32_t) * region::get_water_level()->size());
+				glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+				// Note to self: It's variable size, so we can't memcpy
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, water_particles_ssbo);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint32_t) * wp.size(), &wp[0], GL_DYNAMIC_COPY);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+			}
+		}
+
+		void copy_from_gpu()
+		{
+			glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, water_level_ssbo);
+			GLvoid* p = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
+			memcpy(&region::get_water_level()->operator[](0), p, sizeof(uint32_t) * region::get_water_level()->size());
+			glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
 		}
 
 		void run(const double &duration_ms) {
+			glUseProgram(assets::fluid_shader);
 
-			for (std::size_t i = 0; i<REGION_TILES_COUNT; ++i) {
-				if (water_stable[i] && water_level(i) == 1 && rng.roll_dice(1, 6) == 6) set_water_level(i, 0);
-			}
+			glShaderStorageBlockBinding(assets::fluid_shader, terrain_flags_buffer_idx, 4);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, chunks::flags_ssbo);
+
+			glShaderStorageBlockBinding(assets::fluid_shader, water_level_idx, 5);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, water_level_ssbo);
+
+			glShaderStorageBlockBinding(assets::fluid_shader, water_particles_idx, 6);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, water_particles_ssbo);
+
+			glDispatchCompute(wp.size(), 1, 1);
+
+			// Swimming/drowning
 
 			each<position_t>([](entity_t &e, position_t &pos) {
-				if (water_level(mapidx(pos)) > 7) {
-					bool is_drowning = true;
+				if (pos.x > 0 && pos.x < REGION_WIDTH-1 && pos.y > 0 && pos.y < REGION_HEIGHT-1 && pos.z > 0 && pos.z < REGION_DEPTH-1) {
+					if (water_level(mapidx(pos)) > 7) {
+						auto is_drowning = true;
 
-					auto stats = e.component<game_stats_t>();
-					if (stats) {
-						if (skill_roll(e.id, *stats, rng, "Swimming", DIFFICULTY_AVERAGE) > FAIL) is_drowning = false;
-					}
+						auto stats = e.component<game_stats_t>();
+						if (stats) {
+							if (skill_roll(e.id, *stats, rng, "Swimming", DIFFICULTY_AVERAGE) > FAIL) is_drowning = false;
+						}
 
-					if (is_drowning) {
-						auto health = e.component<health_t>();
-						if (health) {
-							//TODO: Implement inflict damage
-							//emit_deferred(inflict_damage_message{ e.id, rng.roll_dice(1,4), "Drowning" });
+						if (is_drowning) {
+							auto health = e.component<health_t>();
+							if (health) {
+								damage_system::inflict_damage_message msg{ e.id, rng.roll_dice(1,4), "Drowning" };
+								damage_system::inflict_damage(msg);
+							}
 						}
 					}
 				}

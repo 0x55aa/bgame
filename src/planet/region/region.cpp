@@ -1,22 +1,19 @@
 #include "region.hpp"
 #include "../../raws/materials.hpp"
 #include "../../raws/plants.hpp"
-//#include "../../systems/physics/fluid_system.hpp"
-//#include "../../main/game_camera.hpp"
 #include "../../raws/defs/material_def_t.hpp"
 #include "../../raws/defs/plant_t.hpp"
 #include "../../bengine/serialization_utils.hpp"
 #include "../../render_engine/chunks/chunks.hpp"
-#include "../../bengine/bitset8.hpp"
+#include "../../bengine/bitset.hpp"
+#include "../../systems/physics/fluid_system.hpp"
+
+using namespace tile_flags;
 
 namespace region {
 
 	struct region_t {
 		region_t() {
-			revealed.resize(REGION_TILES_COUNT);
-			visible.resize(REGION_TILES_COUNT);
-			solid.resize(REGION_TILES_COUNT);
-			opaque.resize(REGION_TILES_COUNT);
 			tile_type.resize(REGION_TILES_COUNT);
 			tile_material.resize(REGION_TILES_COUNT);
 			hit_points.resize(REGION_TILES_COUNT);
@@ -28,36 +25,28 @@ namespace region {
 			tile_vegetation_lifecycle.resize(REGION_TILES_COUNT);
 			tile_flags.resize(REGION_TILES_COUNT);
 			water_level.resize(REGION_TILES_COUNT);
-			above_ground.resize(REGION_TILES_COUNT);
-			blood_stains.resize(REGION_TILES_COUNT);
 			stockpile_id.resize(REGION_TILES_COUNT);
 			bridge_id.resize(REGION_TILES_COUNT);
 			veg_render_cache_ascii.resize(REGION_TILES_COUNT);
 			building_id.resize(REGION_TILES_COUNT);
 		}
 
-		int region_x, region_y, biome_idx;
-		std::vector<char> revealed;
-		std::vector<char> visible;
-		std::vector<char> solid;
-		std::vector<char> opaque;
+		int region_x=0, region_y=0, biome_idx=0;
 
 		// New tile format data
 		std::vector<uint8_t> tile_type;
-		std::vector<std::size_t> tile_material;
+		std::vector<uint16_t> tile_material;
 		std::vector<uint16_t> hit_points;
 		std::vector<uint8_t> veg_hit_points;
-		std::vector<std::size_t> building_id;
-		std::vector<std::size_t> tree_id;
-		std::vector<std::size_t> bridge_id;
-		std::vector<std::size_t> tile_vegetation_type;
+		std::vector<uint32_t> building_id;
+		std::vector<uint32_t> tree_id;
+		std::vector<uint32_t> bridge_id;
+		std::vector<uint16_t> tile_vegetation_type;
 		std::vector<uint16_t> tile_vegetation_ticker;
 		std::vector<uint8_t> tile_vegetation_lifecycle;
-		std::vector<std::size_t> stockpile_id;
-		std::vector<bengine::bitset8> tile_flags;
-		std::vector<uint8_t> water_level;
-		std::vector<char> above_ground;
-		std::vector<char> blood_stains;
+		std::vector<uint32_t> stockpile_id;
+		std::vector<bengine::bitset<tile_flag_type>> tile_flags;
+		std::vector<uint32_t> water_level;
 		std::vector<render::ascii::glyph_t> veg_render_cache_ascii;
 
 		void tile_recalc_all();
@@ -75,6 +64,16 @@ namespace region {
 
 	std::unique_ptr<region_t> current_region;
 
+	std::vector<bengine::bitset<tile_flag_type>> * get_tile_flags()
+	{
+		return &current_region->tile_flags;
+	}
+
+	std::vector<uint32_t> * get_water_level()
+	{
+		return &current_region->water_level;
+	}
+
 	int ground_z(const int x, const int y) {
 		int z = REGION_DEPTH - 1;
 		bool hit_ground = false;
@@ -91,17 +90,27 @@ namespace region {
 		return z;
 	}
 
-	uint8_t water_level(const int idx) {
+	uint32_t water_level(const int idx) {
 		return current_region->water_level[idx];
 	}
 
-	bool flag(const int idx, uint8_t flag) {
+	bool flag(const int idx, const tile_flags::tile_flag_type flag) {
 		return current_region->tile_flags[idx].test(flag);
+	}
+
+	bengine::bitset<tile_flags::tile_flag_type> get_flag_reference(const int idx)
+	{
+		return current_region->tile_flags[idx];
 	}
 
     uint8_t tile_type(const int idx) {
         return current_region->tile_type[idx];
     }
+
+	std::vector<uint8_t> * get_tile_types_array()
+	{
+		return &current_region->tile_type;
+	}
 
     std::size_t veg_type(const int idx) {
         return current_region->tile_vegetation_type[idx];
@@ -111,19 +120,10 @@ namespace region {
         return current_region->tile_material[idx];
     }
 
-    bool solid(const int idx) {
-        return current_region->solid[idx];
-    }
-
-    bool opaque(const int idx) {
-        return current_region->opaque[idx];
-    }
-
     uint8_t veg_hp(const int idx) {
         return current_region->veg_hit_points[idx];
     }
 
-    bool revealed(const int idx) { return current_region->revealed[idx]; }
     uint16_t tile_hit_points(const int idx) { return current_region->hit_points[idx]; }
     std::size_t stockpile_id(const int idx) { return current_region->stockpile_id[idx]; }
     std::size_t bridge_id(const int idx) { return current_region->bridge_id[idx]; }
@@ -132,11 +132,11 @@ namespace region {
 		return current_region->building_id[idx];
 	}
 
-	void set_building_id(const int idx, const std::size_t id) {
+	void set_building_id(const int idx, const int id) {
 		current_region->building_id[idx] = id;
 	}
 
-	void delete_building(const std::size_t building_id) {
+	void delete_building(const int building_id) {
 		for (auto &bid : current_region->building_id) {
 			if (bid == building_id) bid = 0;
 		}
@@ -148,21 +148,20 @@ namespace region {
 	
     int region_x() { return current_region->region_x; }
     int region_y() { return current_region->region_y; }
-    std::size_t next_tree_id() { return current_region->next_tree_id; }
-    std::size_t tree_id(const int idx) { return current_region->tree_id[idx]; }
+    int next_tree_id() { return current_region->next_tree_id; }
+    int tree_id(const int idx) { return current_region->tree_id[idx]; }
 
     std::size_t get_biome_idx() { return current_region->biome_idx; }
 
-    bool above_ground(const int idx) { return current_region->above_ground[idx]; }
-    bool blood_stain(const int idx) { return current_region->blood_stains[idx]; }
-
     void set_tile_type(const int idx, const uint8_t type) {
+		if (idx < 0 || idx > REGION_TILES_COUNT) return;
         current_region->tile_type[idx] = type;
     }
 
     void set_tile_material(const int idx, const std::size_t material) {
+		if (idx < 0 || idx > REGION_TILES_COUNT) return;
         current_region->tile_material[idx] = material;
-        auto mat = get_material(material);
+        const auto mat = get_material(material);
         if (mat) current_region->hit_points[idx] = mat->hit_points;
     }
 
@@ -182,19 +181,12 @@ namespace region {
         current_region->tile_vegetation_lifecycle[idx] = lifecycle;
     }
 
-    void set_water_level(const int idx, const uint8_t level) {
+    void set_water_level(const int idx, const uint32_t level) {
+		systems::fluids::water_dirty = true;
         current_region->water_level[idx] = level;
     }
 
-    void set_solid(const int idx, bool val) {
-        current_region->solid[idx] = val;
-    }
-
-    void set_opaque(const int idx, bool val) {
-        current_region->opaque[idx] = val;
-    }
-
-    void set_tree_id(const int idx, const std::size_t tree_id) {
+    void set_tree_id(const int idx, const int tree_id) {
         current_region->tree_id[idx] = tree_id;
     }
 
@@ -203,31 +195,30 @@ namespace region {
     }
 
     void reveal(const int idx) {
-        current_region->revealed[idx] = true;
+		if (idx < 0 || idx > REGION_TILES_COUNT) return;
+		current_region->tile_flags[idx].set(REVEALED);
     }
 
     void make_visible(const int idx) {
-        current_region->visible[idx] = true;
+		current_region->tile_flags[idx].set(VISIBLE);
     }
 
     void add_water(const int idx) {
+		systems::fluids::water_dirty = true;
         if (current_region->water_level[idx] < 10) ++current_region->water_level[idx];
     }
 
     void remove_water(const int idx) {
+		systems::fluids::water_dirty = true;
         if (current_region->water_level[idx]>0) --current_region->water_level[idx];
     }
 
-    void set_flag(const int idx, const uint8_t flag) {
+    void set_flag(const int idx, const tile_flags::tile_flag_type flag) {
         current_region->tile_flags[idx].set(flag);
     }
 
-    void reset_flag(const int idx, const uint8_t flag) {
+    void reset_flag(const int idx, const tile_flags::tile_flag_type flag) {
         current_region->tile_flags[idx].reset(flag);
-    }
-
-    void set_bloodstain(const int idx, const bool val) {
-        current_region->blood_stains[idx] = val;
     }
 
     void set_bridge_id(const int idx, const std::size_t id) {
@@ -250,7 +241,7 @@ namespace region {
         }
     }
 
-    void delete_tree(const std::size_t tree_id) {
+    void delete_tree(const int tree_id) {
         for (auto &sid : current_region->tree_id) {
             if (sid == tree_id) sid = 0;
         }
@@ -261,8 +252,19 @@ namespace region {
                   const bool construction)
     {
         set_tile_type(idx, type);
-        current_region->solid[idx] = solid;
-        current_region->opaque[idx] = opaque;
+		if (solid) {
+			current_region->tile_flags[idx].set(SOLID);
+		} else
+		{
+			current_region->tile_flags[idx].reset(SOLID);
+		}
+		if (opaque)
+		{
+			current_region->tile_flags[idx].set(OPAQUE_TILE);
+		} else
+		{
+			current_region->tile_flags[idx].reset(OPAQUE_TILE);
+		}
         set_tile_material(idx, material);
         if (remove_vegetation) current_region->tile_vegetation_type[idx] = 0;
         current_region->water_level[idx] = water;
@@ -297,10 +299,6 @@ namespace region {
     
     void zero_map() {
         current_region->next_tree_id = 1;
-        std::fill(current_region->visible.begin(), current_region->visible.end(), false);
-        std::fill(current_region->solid.begin(), current_region->solid.end(), false);
-        std::fill(current_region->opaque.begin(), current_region->opaque.end(), false);
-        std::fill(current_region->revealed.begin(), current_region->revealed.end(), false);
         std::fill(current_region->tile_type.begin(), current_region->tile_type.end(), tile_type::OPEN_SPACE);
         std::fill(current_region->tile_material.begin(), current_region->tile_material.end(), 0);
         std::fill(current_region->hit_points.begin(), current_region->hit_points.end(), 0);
@@ -311,13 +309,15 @@ namespace region {
         std::fill(current_region->tile_vegetation_ticker.begin(), current_region->tile_vegetation_ticker.end(), 0);
         std::fill(current_region->tile_vegetation_lifecycle.begin(), current_region->tile_vegetation_lifecycle.end(), 0);
         std::fill(current_region->water_level.begin(), current_region->water_level.end(), 0);
-        std::fill(current_region->blood_stains.begin(), current_region->blood_stains.end(), false);
         std::fill(current_region->stockpile_id.begin(), current_region->stockpile_id.end(), 0);
         std::fill(current_region->bridge_id.begin(), current_region->bridge_id.end(), 0);
     }
 
     void clear_visibility() {
-        std::fill(current_region->visible.begin(), current_region->visible.end(), false);
+		for (auto &f : current_region->tile_flags)
+		{
+			f.reset(VISIBLE);
+		}
     }
 
     void new_region(const int x, const int y, const std::size_t biome) {
@@ -342,8 +342,8 @@ namespace region {
 
     void make_open_space(const int idx) {
         current_region->tile_type[idx] = tile_type::OPEN_SPACE;
-        current_region->solid[idx] = false;
-        current_region->opaque[idx] = false;
+		current_region->tile_flags[idx].reset(SOLID);
+		current_region->tile_flags[idx].reset(OPAQUE_TILE);
         current_region->tile_flags[idx].reset(CAN_STAND_HERE);
         current_region->tile_flags[idx].reset(CONSTRUCTION);
         current_region->tile_vegetation_type[idx] = 0;
@@ -352,8 +352,8 @@ namespace region {
 
     void make_floor(const int idx, const std::size_t mat) {
         current_region->tile_type[idx] = tile_type::FLOOR;
-        current_region->solid[idx] = false;
-        current_region->opaque[idx] = false;
+		current_region->tile_flags[idx].reset(SOLID);
+		current_region->tile_flags[idx].reset(OPAQUE_TILE);
         current_region->tile_flags[idx].set(CAN_STAND_HERE);
         current_region->tile_vegetation_type[idx] = 0;
 		if (mat > 0) set_tile_material(idx, mat);
@@ -362,8 +362,8 @@ namespace region {
 
     void make_ramp(const int idx, const std::size_t mat) {
         current_region->tile_type[idx] = tile_type::RAMP;
-        current_region->solid[idx] = false;
-        current_region->opaque[idx] = false;
+		current_region->tile_flags[idx].reset(SOLID);
+		current_region->tile_flags[idx].reset(OPAQUE_TILE);
         current_region->tile_flags[idx].set(CAN_STAND_HERE);
         current_region->tile_vegetation_type[idx] = 0;
 		if (mat > 0) set_tile_material(idx, mat);
@@ -372,8 +372,8 @@ namespace region {
 
     void make_stairs_up(const int idx, const std::size_t mat) {
         current_region->tile_type[idx] = tile_type::STAIRS_UP;
-        current_region->solid[idx] = false;
-        current_region->opaque[idx] = false;
+		current_region->tile_flags[idx].reset(SOLID);
+		current_region->tile_flags[idx].reset(OPAQUE_TILE);
         current_region->tile_flags[idx].set(CAN_STAND_HERE);
         current_region->tile_vegetation_type[idx] = 0;
 		if (mat > 0) set_tile_material(idx, mat);
@@ -382,8 +382,8 @@ namespace region {
 
     void make_stairs_down(const int idx, const std::size_t mat) {
         current_region->tile_type[idx] = tile_type::STAIRS_DOWN;
-        current_region->solid[idx] = false;
-        current_region->opaque[idx] = false;
+		current_region->tile_flags[idx].reset(SOLID);
+		current_region->tile_flags[idx].reset(OPAQUE_TILE);
         current_region->tile_flags[idx].set(CAN_STAND_HERE);
         current_region->tile_vegetation_type[idx] = 0;
 		if (mat > 0) set_tile_material(idx, mat);
@@ -392,8 +392,8 @@ namespace region {
 
     void make_stairs_updown(const int idx, const std::size_t mat) {
         current_region->tile_type[idx] = tile_type::STAIRS_UPDOWN;
-        current_region->solid[idx] = false;
-        current_region->opaque[idx] = false;
+		current_region->tile_flags[idx].reset(SOLID);
+		current_region->tile_flags[idx].reset(OPAQUE_TILE);
         current_region->tile_flags[idx].set(CAN_STAND_HERE);
         current_region->tile_vegetation_type[idx] = 0;
 		if (mat > 0) set_tile_material(idx, mat);
@@ -402,8 +402,8 @@ namespace region {
 
     void make_wall(const int idx, const std::size_t mat) {
         current_region->tile_type[idx] = tile_type::WALL;
-        current_region->solid[idx] = true;
-        current_region->opaque[idx] = true;
+		current_region->tile_flags[idx].reset(SOLID);
+		current_region->tile_flags[idx].reset(OPAQUE_TILE);
         current_region->tile_flags[idx].reset(CAN_STAND_HERE);
         current_region->tile_flags[idx].set(CONSTRUCTION);
         current_region->tile_vegetation_type[idx] = 0;
@@ -416,7 +416,7 @@ namespace region {
 	}
 
 	void save_current_region() {
-		std::string region_filename =
+		const auto region_filename =
 				get_save_path() + std::string("/region_") + std::to_string(current_region->region_x) + "_" +
 				std::to_string(current_region->region_y) + ".dat";
 		serial::gzip_file deflate(region_filename, "wb");
@@ -426,10 +426,6 @@ namespace region {
 		deflate.serialize(current_region->biome_idx);
 		deflate.serialize(current_region->next_tree_id);
 
-		deflate.serialize(current_region->revealed);
-		deflate.serialize(current_region->visible);
-		deflate.serialize(current_region->solid);
-		deflate.serialize(current_region->opaque);
 		deflate.serialize(current_region->tile_type);
 		deflate.serialize(current_region->tile_material);
 		deflate.serialize(current_region->hit_points);
@@ -441,13 +437,12 @@ namespace region {
 		deflate.serialize(current_region->tile_vegetation_lifecycle);
 		deflate.serialize(current_region->tile_flags);
 		deflate.serialize(current_region->water_level);
-		deflate.serialize(current_region->blood_stains);
 		deflate.serialize(current_region->stockpile_id);
 		deflate.serialize(current_region->bridge_id);
 	}
 
 	void load_current_region(const int region_x, const int region_y) {
-		std::string region_filename =
+		const auto region_filename =
 				get_save_path() + std::string("/region_") + std::to_string(region_x) + "_" + std::to_string(region_y) +
 				".dat";
 		serial::gzip_file inflate(region_filename, "rb");
@@ -458,10 +453,6 @@ namespace region {
 		inflate.deserialize(current_region->biome_idx);
 		inflate.deserialize(current_region->next_tree_id);
 
-		inflate.deserialize(current_region->revealed);
-		inflate.deserialize(current_region->visible);
-		inflate.deserialize(current_region->solid);
-		inflate.deserialize(current_region->opaque);
 		inflate.deserialize(current_region->tile_type);
 		inflate.deserialize(current_region->tile_material);
 		inflate.deserialize(current_region->hit_points);
@@ -473,11 +464,10 @@ namespace region {
 		inflate.deserialize(current_region->tile_vegetation_lifecycle);
 		inflate.deserialize(current_region->tile_flags);
 		inflate.deserialize(current_region->water_level);
-		inflate.deserialize(current_region->blood_stains);
 		inflate.deserialize(current_region->stockpile_id);
 		inflate.deserialize(current_region->bridge_id);
 
-		std::cout << "Recalculating region paths\n";
+		//std::cout << "Recalculating region paths\n";
 		current_region->tile_recalc_all();
 	}
 
@@ -510,15 +500,15 @@ namespace region {
 			tile_type[idx] == tile_type::TREE_LEAF
 			|| tile_type[idx] == tile_type::WINDOW || tile_type[idx] == tile_type::CLOSED_DOOR)
         {
-			solid[idx] = true;
+			tile_flags[idx].set(SOLID);
 			if (tile_type[idx] == tile_type::WINDOW) {
-				opaque[idx] = false;
+				tile_flags[idx].reset(OPAQUE_TILE);
 			} else {
-				opaque[idx] = true;
+				tile_flags[idx].set(OPAQUE_TILE);
 			}
 			tile_flags[idx].reset(CAN_STAND_HERE);
 		} else {
-			solid[idx] = false;
+			tile_flags[idx].reset(SOLID);
 
 			// Locations on which one can stand
 			tile_flags[idx].set(CAN_STAND_HERE);
@@ -556,16 +546,22 @@ namespace region {
 		tile_flags[idx].reset(CAN_GO_WEST);
 		tile_flags[idx].reset(CAN_GO_UP);
 		tile_flags[idx].reset(CAN_GO_DOWN);
+		tile_flags[idx].reset(CAN_GO_NORTH_EAST);
+		tile_flags[idx].reset(CAN_GO_NORTH_WEST);
+		tile_flags[idx].reset(CAN_GO_SOUTH_EAST);
+		tile_flags[idx].reset(CAN_GO_SOUTH_WEST);
 
-		if (solid[idx] || !tile_flags[idx].test(CAN_STAND_HERE)) {
+		if (tile_flags[idx].test(SOLID) || !tile_flags[idx].test(CAN_STAND_HERE)) {
 			// If you can't go there, it doesn't have any exits.
 		} else {
 			if (x > 0 && tile_flags[mapidx(x - 1, y, z)].test(CAN_STAND_HERE)) tile_flags[idx].set(CAN_GO_WEST);
-			if (x < REGION_WIDTH - 1 && tile_flags[mapidx(x + 1, y, z)].test(CAN_STAND_HERE))
-				tile_flags[idx].set(CAN_GO_EAST);
+			if (x < REGION_WIDTH - 1 && tile_flags[mapidx(x + 1, y, z)].test(CAN_STAND_HERE)) tile_flags[idx].set(CAN_GO_EAST);
 			if (y > 0 && tile_flags[mapidx(x, y - 1, z)].test(CAN_STAND_HERE)) tile_flags[idx].set(CAN_GO_NORTH);
-			if (y < REGION_HEIGHT - 1 && tile_flags[mapidx(x, y + 1, z)].test(CAN_STAND_HERE))
-				tile_flags[idx].set(CAN_GO_SOUTH);
+			if (y < REGION_HEIGHT - 1 && tile_flags[mapidx(x, y + 1, z)].test(CAN_STAND_HERE)) tile_flags[idx].set(CAN_GO_SOUTH);
+			if (x > 0 && y > 0 && tile_flags[mapidx(x - 1, y - 1, z)].test(CAN_STAND_HERE)) tile_flags[idx].set(CAN_GO_NORTH_WEST);
+			if (x < REGION_WIDTH - 1 && y > 0 && tile_flags[mapidx(x + 1, y - 1, z)].test(CAN_STAND_HERE)) tile_flags[idx].set(CAN_GO_NORTH_EAST);
+			if (x > 0 && y < REGION_HEIGHT - 1 && tile_flags[mapidx(x - 1, y + 1, z)].test(CAN_STAND_HERE)) tile_flags[idx].set(CAN_GO_SOUTH_WEST);
+			if (x < REGION_WIDTH - 1 && y < REGION_HEIGHT - 1 && tile_flags[mapidx(x + 1, y + 1, z)].test(CAN_STAND_HERE)) tile_flags[idx].set(CAN_GO_SOUTH_EAST);
 
 			if (z < REGION_DEPTH - 1 &&
 				(tile_type[idx] == tile_type::RAMP || tile_type[idx] == tile_type::STAIRS_UP ||
@@ -589,12 +585,11 @@ namespace region {
 		// Vegetation cache
 		using namespace render::ascii;
 		glyph_t ascii_vegetation{ '"', 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-		int voxel_vegetation = 0;
 
-		size_t vegtype = tile_vegetation_type[idx];
+		const auto vegtype = tile_vegetation_type[idx];
 		if (vegtype > 0) {
 			//std::cout << vegtype << "\n";
-			uint8_t lifecycle = tile_vegetation_lifecycle[idx];
+			const auto lifecycle = tile_vegetation_lifecycle[idx];
 			if (lifecycle < 4) {
 				auto plant = get_plant_def(vegtype);
 				if (plant) {
@@ -610,14 +605,17 @@ namespace region {
 	}
 
 	void region_t::above_ground_calculation() {
-		std::fill(above_ground.begin(), above_ground.end(), false);
-		for (int y = 0; y < REGION_HEIGHT; ++y) {
-			for (int x = 0; x < REGION_WIDTH; ++x) {
-				for (int z = REGION_DEPTH - 1; z > 0; --z) {
-					const int idx = mapidx(x, y, z);
-					above_ground[idx] = true;
+		for (auto &f : tile_flags)
+		{
+			f.reset(ABOVE_GROUND);
+		}
+		for (auto y = 0; y < REGION_HEIGHT; ++y) {
+			for (auto x = 0; x < REGION_WIDTH; ++x) {
+				for (auto z = REGION_DEPTH - 1; z > 0; --z) {
+					const auto idx = mapidx(x, y, z);
+					tile_flags[idx].set(ABOVE_GROUND);
 					const auto tt = tile_type[idx];
-					const bool hit_ground = (tt == tile_type::SOLID || tt == tile_type::FLOOR || tt == tile_type::WALL);
+					const auto hit_ground = (tt == tile_type::SOLID || tt == tile_type::FLOOR || tt == tile_type::WALL);
 					if (hit_ground) goto escape_from_dive;
 				}
 

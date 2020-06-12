@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include "log_system.hpp"
 #include "../../global_assets/game_logger.hpp"
 #include "../../bengine/IconsFontAwesome.h"
@@ -7,6 +8,8 @@
 #include "../../bengine/rexspeeder.hpp"
 #include "../../bengine/main_window.hpp"
 #include "../../bengine/color_t.hpp"
+#include <mutex>
+#include <queue>
 
 namespace systems {
 	namespace logging {
@@ -39,39 +42,27 @@ namespace systems {
 		void run(const double &duration_ms) {
 			process_log_messages();
 
-			if (game_master_mode == PLAY) {
-				//std::cout << "Log system render\n";
-				if (first_run) {
-					int w, h;
-					glfwGetWindowSize(bengine::main_window, &w, &h);
-					ImGui::SetNextWindowPos(ImVec2(5, h - 150), ImGuiSetCond_Always);
-					first_run = false;
-				}
-				if (logger->lines.empty()) return;
-				ImGui::Begin(win_log.c_str(), nullptr, ImVec2{ 600,125 }, 0.5f, ImGuiWindowFlags_AlwaysAutoResize + ImGuiWindowFlags_NoCollapse);
-				for (const auto &line : logger->lines) {
-					if (!line.chars.empty()) {
-						std::string output;
-						bengine::color_t current = line.chars[0].foreground;
-						bool first = true;
-						for (const xp::vchar &c : line.chars) {
-							if (c.foreground == current) {
-								output += c.glyph;
-							}
-							else {
-								if (!first) {
-									ImGui::SameLine();
-								}
-								else {
-									first = false;
-								}
-								ImVec4 col{ current.r, current.g, current.b, 1.0f };
-								ImGui::TextColored(col, "%s", output.c_str());
-								output = c.glyph;
-								current = c.foreground;
-							}
+			if (game_master_mode != PLAY) return;
+
+			//std::cout << "Log system render\n";
+			if (logger->lines.empty()) return;
+			if (first_run) {
+				int w, h;
+				glfwGetWindowSize(bengine::main_window, &w, &h);
+				ImGui::SetNextWindowPos(ImVec2(5, h - 150), ImGuiSetCond_Always);
+				first_run = false;
+			}
+			ImGui::Begin(win_log.c_str(), nullptr, ImVec2{ 600,125 }, 0.5f, ImGuiWindowFlags_NoCollapse + ImGuiWindowFlags_NoSavedSettings);
+			for (const auto &line : logger->lines) {
+				if (!line.chars.empty()) {
+					std::string output;
+					bengine::color_t current = line.chars[0].foreground;
+					bool first = true;
+					for (const xp::vchar &c : line.chars) {
+						if (c.foreground == current) {
+							output += c.glyph;
 						}
-						if (!output.empty()) {
+						else {
 							if (!first) {
 								ImGui::SameLine();
 							}
@@ -80,12 +71,24 @@ namespace systems {
 							}
 							ImVec4 col{ current.r, current.g, current.b, 1.0f };
 							ImGui::TextColored(col, "%s", output.c_str());
-							output = "";
+							output = c.glyph;
+							current = c.foreground;
 						}
 					}
+					if (!output.empty()) {
+						if (!first) {
+							ImGui::SameLine();
+						}
+						else {
+							first = false;
+						}
+						ImVec4 col{ current.r, current.g, current.b, 1.0f };
+						ImGui::TextColored(col, "%s", output.c_str());
+						output = "";
+					}
 				}
-				ImGui::End();
 			}
+			ImGui::End();
 		}
 	}
 }

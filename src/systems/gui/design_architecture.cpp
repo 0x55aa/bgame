@@ -1,16 +1,20 @@
+#include "stdafx.h"
 #include "design_architecture.hpp"
+#include "../../bengine/gl_include.hpp"
 #include "../../global_assets/architecture_designations.hpp"
 #include "../../bengine/IconsFontAwesome.h"
 #include "../../bengine/imgui.h"
 #include "../mouse.hpp"
 #include "../helpers/inventory_assistant.hpp"
-#include "../../components/buildings/bridge.hpp"
 #include "../../planet/region/region.hpp"
 #include "../ai/architecture_system.hpp"
 #include "../../global_assets/game_camera.hpp"
 #include "../../bengine/filesystem.hpp"
 #include "boost/filesystem.hpp"
 #include "architecture_template.hpp"
+#include "../keydamper.hpp"
+#include "../../bengine/btabs.hpp"
+#include <cereal/archives/xml.hpp>
 
 namespace systems {
 	namespace design_architecture {
@@ -216,6 +220,8 @@ namespace systems {
 
 		}
 
+		const char * arch_modes = "(W) Wall\0(F) Floor\0(U) Up Ladder\0(J) Down Ladder\0(I) Up/Down Ladder\0(R) Ramp Up\0(B) Bridge\0(T) Template\0\0";
+
 		void run(const double &duration_ms) {
 			using namespace inventory;
 			using namespace bengine;
@@ -242,17 +248,22 @@ namespace systems {
 				else {
 					ImGui::TextColored(ImVec4{ 1.0f, 0.0f, 0.0f, 1.0f }, "%s", block_availability.c_str());
 				}
-				ImGui::Text("Left click to build, right click to clear tile");
+				ImGui::Text("Left click to build, right click to clear tile.");
+
 
 				// Options for wall/floor/up/down/updown/ramp/bridge
-				ImGui::RadioButton("Wall", &architecture_mode, 0); ImGui::SameLine();
-				ImGui::RadioButton("Floor", &architecture_mode, 1); ImGui::SameLine();
-				ImGui::RadioButton("Up", &architecture_mode, 2); ImGui::SameLine();
-				ImGui::RadioButton("Down", &architecture_mode, 3);
-				ImGui::RadioButton("Up/Down", &architecture_mode, 4); ImGui::SameLine();
-				ImGui::RadioButton("Ramp", &architecture_mode, 5); ImGui::SameLine();
-				ImGui::RadioButton("Bridge", &architecture_mode, 6); ImGui::SameLine();
-				ImGui::RadioButton("Template", &architecture_mode, 7);
+				ImGui::Text("Architect Mode:");
+				ImGui::SameLine();
+				ImGui::Combo("##ArchMode", &architecture_mode, arch_modes);
+
+				if (is_key_down(GLFW_KEY_W)) architecture_mode = 0;
+				if (is_key_down(GLFW_KEY_F)) architecture_mode = 1;
+				if (is_key_down(GLFW_KEY_U)) architecture_mode = 2;
+				if (is_key_down(GLFW_KEY_J)) architecture_mode = 3;
+				if (is_key_down(GLFW_KEY_I)) architecture_mode = 4;
+				if (is_key_down(GLFW_KEY_R)) architecture_mode = 5;
+				if (is_key_down(GLFW_KEY_B)) architecture_mode = 6;
+				if (is_key_down(GLFW_KEY_T)) architecture_mode = 7;
 
 				// Size options
 				if (architecture_mode == 7)
@@ -271,10 +282,14 @@ namespace systems {
 					}
 				} 
 				else if (architecture_mode == 0 || architecture_mode == 1 || architecture_mode == 6) {
-					ImGui::InputInt("Width", &arch_width);
-					ImGui::InputInt("Height", &arch_height);
+					bengine::render_width_control(arch_width, 1, 20);
+					ImGui::SameLine();
+					bengine::render_height_control(arch_height, 1, 20);
+
 					if (architecture_mode != 6) {
-						ImGui::Checkbox("Filled?", &arch_filled);
+						ImGui::SameLine();
+						ImGui::Checkbox("Filled? (H)", &arch_filled);
+						if (is_key_down(GLFW_KEY_H)) arch_filled = !arch_filled;
 					}
 				}
 				else {
@@ -296,7 +311,7 @@ namespace systems {
 				if (ImGui::Button(btn_close.c_str())) {
 					showing_save_template = false;
 				}
-				int n_elements = static_cast<int>(architecture_designations->architecture.size());
+				const auto n_elements = static_cast<int>(architecture_designations->architecture.size());
 
 				ImGui::Text("You have %d mining targets in this template.", n_elements);
 				ImGui::Text("Please enter a filename:");
@@ -313,7 +328,7 @@ namespace systems {
 					const std::string fn(filename);
 					//const std::string filename = home + std::string(filename) + std::string(".mine-template");
 					const std::string filename = home + std::string("/") + fn + std::string(".arch-template");
-					std::cout << "Saving template as: " << filename << "\n";
+					//std::cout << "Saving template as: " << filename << "\n";
 
 					int min_x = 1000;
 					int min_y = 1000;

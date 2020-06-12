@@ -1,13 +1,8 @@
+#include "stdafx.h"
 #include "../../utils/thread_safe_message_queue.hpp"
-#include "../../components/items/item_carried.hpp"
-#include "../../components/items/item.hpp"
-#include "../../components/position.hpp"
 #include "../../global_assets/spatial_db.hpp"
-#include "../../components/items/item_stored.hpp"
-#include "../../components/claimed_t.hpp"
 #include "../../global_assets/game_building.hpp"
 #include "../helpers/inventory_assistant.hpp"
-#include "../../components/buildings/building.hpp"
 #include "../../global_assets/game_camera.hpp"
 #include "../../render_engine/vox/renderables.hpp"
 #include "../../raws/buildings.hpp"
@@ -16,6 +11,7 @@
 #include "../../planet/region/region.hpp"
 #include "distance_map_system.hpp"
 #include "../../global_assets/building_designations.hpp"
+#include "../../bengine/btabs.hpp"
 
 namespace systems {
 	namespace inventory_system {
@@ -26,39 +22,39 @@ namespace systems {
 		};
 
 		struct drop_item_message {
-			drop_item_message() {}
-			drop_item_message(const std::size_t &ID, const int &X, const int &Y, const int &Z) : id(ID), x(X), y(Y), z(Z) {}
-			std::size_t id;
+			drop_item_message() = default;
+			drop_item_message(const int &new_id, const int &X, const int &Y, const int &Z) : id(new_id), x(X), y(Y), z(Z) {}
+			int id;
 			int x, y, z;
 		};
 
 		struct item_claimed_message {
-			item_claimed_message() {}
-			item_claimed_message(const std::size_t i, const bool c) : claimed(c), id(i) {}
+			item_claimed_message() = default;
+			item_claimed_message(const int i, const bool c) : claimed(c), id(i) {}
 			bool claimed;
-			std::size_t id;
+			int id;
 		};
 
 		struct pickup_item_message {
-			pickup_item_message() {}
-			pickup_item_message(const std::size_t &ID, const std::size_t &holder) : id(ID), collector(holder) {}
-			pickup_item_message(const std::size_t &ID, const std::size_t &holder, const item_location_t &LOC) : id(ID), collector(holder), loc(LOC) {}
-			std::size_t id;
-			std::size_t collector;
+			pickup_item_message() = default;
+			pickup_item_message(const int &new_id, const std::size_t &holder) : id(new_id), collector(holder) {}
+			pickup_item_message(const int &new_id, const std::size_t &holder, const item_location_t &LOC) : id(new_id), collector(holder), loc(LOC) {}
+			int id;
+			int collector;
 			item_location_t loc = INVENTORY;
 		};
 
 		struct destroy_item_message {
-			destroy_item_message() {}
-			destroy_item_message(const std::size_t ID) : id(ID) {}
-			std::size_t id;
+			destroy_item_message() = default;
+			destroy_item_message(const int new_id) : id(new_id) {}
+			int id;
 		};
 
 		struct build_request_message {
 			int x, y, z;
 			buildings::available_building_t building;
-			build_request_message() {}
-			build_request_message(const int X, const int Y, const int Z, const buildings::available_building_t build) : x(X), y(Y), z(Z), building(build) {}
+			build_request_message() = default;
+			build_request_message(const int new_x, const int new_y, const int new_z, const buildings::available_building_t &build) : x(new_x), y(new_y), z(new_z), building(build) {}
 		};
 
 		thread_safe_message_queue<inventory_changed_message> inventory_changes;
@@ -70,23 +66,23 @@ namespace systems {
 
 		bool dirty = true;
 
-		void claim_item(const std::size_t i, const bool c) {
+		void claim_item(const int i, const bool c) {
 			claimed_items.enqueue(item_claimed_message{ i, c });
 		}
 
-		void drop_item(const std::size_t &ID, const int &X, const int &Y, const int &Z) {
+		void drop_item(const int &ID, const int &X, const int &Y, const int &Z) {
 			dropped_items.enqueue(drop_item_message{ ID, X, Y, Z });
 		}
 
-		void pickup_item(const std::size_t &ID, const std::size_t &holder) {
+		void pickup_item(const int &ID, const std::size_t &holder) {
 			pickup_items.enqueue(pickup_item_message{ ID, holder });
 		}
 
-		void pickup_item(const std::size_t &ID, const std::size_t &holder, const item_location_t &LOC) {
+		void pickup_item(const int &ID, const std::size_t &holder, const item_location_t &LOC) {
 			pickup_items.enqueue(pickup_item_message{ ID, holder, LOC });
 		}
 
-		void destroy_item(const std::size_t ID) {
+		void destroy_item(const int ID) {
 			destroy_items.enqueue(destroy_item_message{ ID });
 		}
 
@@ -94,11 +90,62 @@ namespace systems {
 			inventory_changes.enqueue(inventory_changed_message{});
 		}
 
-		void building_request(int x, int y, int z, buildings::available_building_t building) {
+		void building_request(const int x, const int y, const int z, const buildings::available_building_t building) {
 			building_requests.enqueue(build_request_message{ x,y,z,building });
 		}
 
+		static std::map<std::string, int> stock_list;
+
+		static void process_standing_orders()
+		{
+			// Update the stock list
+			if (major_tick) {
+				stock_list.clear();
+				bengine::each<item_t>([](entity_t &e, item_t &i)
+				{
+					const auto finder = stock_list.find(i.item_tag);
+					if (finder == stock_list.end())
+					{
+						stock_list.insert(std::make_pair(i.item_tag, 1));
+					}
+					else
+					{
+						++finder->second;
+					}
+				});
+			}
+
+			for (const auto &order : building_designations->standing_build_orders)
+			{
+				auto already_ordered = false;
+				for (const auto &o : building_designations->build_orders)
+				{
+					if (order.second.second == o.second)
+					{
+						already_ordered = true;
+						goto skipper;
+					}
+				}
+
+			skipper:
+				if (!already_ordered)
+				{
+					// How many do we have in stock?
+					const auto stock_finder = stock_list.find(order.first);
+					const auto in_stock = stock_finder == stock_list.end() ? 0 : stock_finder->second;
+
+					if (in_stock < order.second.first)
+					{
+						// Enqueue a build order if we can
+						building_designations->build_orders.emplace_back(std::make_pair(1, order.second.second));
+					}
+				}
+			}
+		}
+
 		void run(const double &duration_ms) {
+			process_standing_orders();
+
 			inventory_changes.process_all([](inventory_changed_message &msg) {
 				dirty = true;
 			});
@@ -108,6 +155,11 @@ namespace systems {
 				if (!E) return;
 				claimed_items.enqueue(item_claimed_message{ msg.id, false });
 
+				auto carried_by = E->component<item_carried_t>();
+				if (carried_by)
+				{
+					render::invalidate_composite_cache_for_entity(carried_by->carried_by);
+				}
 				delete_component<item_carried_t>(msg.id);
 
 				auto item = E->component<item_t>();
@@ -128,6 +180,7 @@ namespace systems {
 				}
 				delete_component<item_stored_t>(msg.id);
 				entity(msg.id)->assign(item_carried_t{ msg.loc, msg.collector });
+				render::invalidate_composite_cache_for_entity(msg.collector);
 				if (entity(msg.id)->component<claimed_t>() == nullptr) entity(msg.id)->assign(claimed_t{ msg.collector });
 				dirty = true;
 				render::models_changed = true;
@@ -177,9 +230,9 @@ namespace systems {
 				designate.glyphs_ascii = building.glyphs_ascii;
 
 				for (const auto &requested_component : building.components) {
-					const auto component_id = inventory::claim_item_by_reaction_input(requested_component);
+					const auto component_id = inventory::claim_item_by_reaction_input(requested_component, 0);
 					bengine::entity(component_id)->assign(claimed_t{});
-					std::cout << "Component [" << requested_component.tag << "] #" << component_id << "\n";
+					//std::cout << "Component [" << requested_component.tag << "] #" << component_id << "\n";
 					designate.component_ids.emplace_back(std::make_pair(component_id, false));
 				}
 
@@ -188,8 +241,8 @@ namespace systems {
 
 				auto building_template = create_entity()
 					->assign(position_t{ msg.x, msg.y, msg.z })
-					->assign(building_t{ designate.tag, designate.width, designate.height, designate.glyphs,
-						designate.glyphs_ascii, false, 0, 10, 10, building_def->vox_model });
+					->assign(building_t{ designate.tag, designate.width, designate.height, designate.glyphs, designate.glyphs_ascii, false, 0, 10, 10, building_def->vox_model })
+					->assign(name_t{ designate.name, "" });
 				designate.building_entity = building_template->id;
 				for (int y = msg.y; y<msg.y + designate.height; ++y) {
 					for (int x = msg.x; x < msg.x + designate.width; ++x) {

@@ -1,6 +1,7 @@
+#include "stdafx.h"
 #include "game_stats.hpp"
-#include "../components/logger.hpp"
 #include "../systems/gui/log_system.hpp"
+#include "../utils/system_log.hpp"
 
 std::string game_stats_t::strength_str() {
     if (strength < 5) return "is very weak.";
@@ -88,12 +89,12 @@ int get_attribute_modifier_for_skill(const game_stats_t &stats, const std::strin
 			default: return 0;
 		}
 	} else {
-		std::cout << "Warning: unknown skill [" << skill << "]\n";
+		glog(log_target::GAME, log_severity::error, "Unknown skill: {0}", skill);
 		return 0;
 	}
 }
 
-int8_t get_skill_modifier(const game_stats_t &stats, const std::string &skill) {
+int16_t get_skill_modifier(const game_stats_t &stats, const std::string &skill) {
 	auto finder = stats.skills.find(skill);
 	if (finder != stats.skills.end()) {
 		return finder->second.skill_level;
@@ -102,7 +103,7 @@ int8_t get_skill_modifier(const game_stats_t &stats, const std::string &skill) {
 	}
 }
 
-void gain_skill_from_success(const std::size_t settler_id, game_stats_t &stats, const std::string &skill, const int &difficulty, bengine::random_number_generator &rng) {
+void gain_skill_from_success(const int settler_id, game_stats_t &stats, const std::string &skill, const int &difficulty, bengine::random_number_generator &rng) {
 	auto finder = stats.skills.find(skill);
 	if (finder != stats.skills.end()) {
 		finder->second.experience_gained += difficulty;
@@ -148,13 +149,13 @@ void gain_skill_from_success(const std::size_t settler_id, game_stats_t &stats, 
 	}
 }
 
-skill_roll_result_t skill_roll(const std::size_t settler_id, game_stats_t &stats, bengine::random_number_generator &rng, const std::string skill_name, const int difficulty) {
+skill_roll_result_t skill_roll(const int settler_id, game_stats_t &stats, bengine::random_number_generator &rng, const std::string skill_name, const int difficulty) {
 	const int luck_component = rng.roll_dice( 1, 20 );
 	const int natural_ability = get_attribute_modifier_for_skill(stats, skill_name);
 	const int8_t person_skill = get_skill_modifier(stats, skill_name);
 	const int total = luck_component + natural_ability + person_skill;
 
-	std::cout << skill_name << " roll, difficulty " << difficulty << ". 1d20 = " << luck_component << ", +" << natural_ability << " (ability) + " << +person_skill << " (skill) = " << total << "\n";
+	glog(log_target::GAME, log_severity::info, "{0} roll, difficulty {1}. 1d20 = {2}, + {3} (ability) + {4} (skill) = {5}", skill_name, difficulty, luck_component, natural_ability, person_skill, total);
 
 	if (luck_component == 1) {
 		return CRITICAL_FAIL;
@@ -169,16 +170,16 @@ skill_roll_result_t skill_roll(const std::size_t settler_id, game_stats_t &stats
 	}
 }
 
-std::tuple<skill_roll_result_t, int, int> skill_roll_ext(const std::size_t settler_id, game_stats_t &stats, bengine::random_number_generator &rng, const std::string skill_name, const int difficulty) {
+std::tuple<skill_roll_result_t, int, int> skill_roll_ext(const int settler_id, game_stats_t &stats, bengine::random_number_generator &rng, const std::string skill_name, const int difficulty) {
 	const int luck_component = rng.roll_dice(1, 20);
 	const int natural_ability = get_attribute_modifier_for_skill(stats, skill_name);
 	const int8_t person_skill = get_skill_modifier(stats, skill_name);
 	const int total = luck_component + natural_ability + person_skill;
 	std::tuple<skill_roll_result_t, int, int> result;
 	std::get<1>(result) = luck_component;
-	std::get<2>(result) = difficulty - total;
+	std::get<2>(result) = total - difficulty;
 
-	std::cout << skill_name << " roll, difficulty " << difficulty << ". 1d20 = " << luck_component << ", +" << natural_ability << " (ability) + " << +person_skill << " (skill) = " << total << "\n";
+	glog(log_target::GAME, log_severity::info, "{0} roll, difficulty {1}. 1d20 = {2}, + {3} (ability) + {4} (skill) = {5}", skill_name, difficulty, luck_component, natural_ability, person_skill, total);
 
 	if (luck_component == 1) {
 		std::get<0>(result) = CRITICAL_FAIL;

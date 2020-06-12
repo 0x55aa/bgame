@@ -1,20 +1,15 @@
+#include "stdafx.h"
 #include "ai_work_farm_plant.hpp"
 #include "templated_work_steps_t.hpp"
-#include "../../../components/ai_tags/ai_tag_work_farm_plant.hpp"
-#include "../../../components/farming/designated_farmer.hpp"
 #include "../../../global_assets/farming_designations.hpp"
-#include "../../../components/claimed_t.hpp"
-#include "../../../components/item_tags/item_farming.hpp"
 #include "../../helpers/inventory_assistant.hpp"
 #include "../../damage/damage_system.hpp"
 #include "../../../render_engine/chunks/chunks.hpp"
 #include "ai_work_farm_plant.hpp"
-#include "../../../components/item_tags/item_seed_t.hpp"
 #include "../../../bengine/telemetry.hpp"
 #include "../../../raws/plants.hpp"
 #include "../../../raws/defs/plant_t.hpp"
-
-#pragma once
+#include "../../../planet/region/region.hpp"
 
 namespace systems {
 	namespace ai_farm_plant {
@@ -89,10 +84,10 @@ namespace systems {
 			else {
 				// Find a seed for this farm
 				const auto seed_type = plant_targets.begin()->second.second->seed_type;
-				std::cout << seed_type << "\n";
+				//std::cout << seed_type << "\n";
 				std::size_t seed_id = 0;
 				each<claimed_t, item_seed_t>([&seed_type, &seed_id](entity_t &se, claimed_t &claim, item_seed_t &seed) {
-					std::cout << seed.grows_into << "\n";
+					//std::cout << seed.grows_into << "\n";
 					if (seed.grows_into == seed_type) seed_id = se.id;
 				});
 				if (seed_id == 0) {
@@ -156,7 +151,7 @@ namespace systems {
 
 			auto farm_finder = farm_designations->farms.find(idx);
 			if (farm_finder == farm_designations->farms.end() || farm_finder->second.state != farm_steps::PLANT_SEEDS) {
-				std::cout << "Bailing out - not relevant anymore!";
+				//std::cout << "Bailing out - not relevant anymore!";
 				inventory_system::drop_item(h.seed_id, pos.x, pos.y, pos.z);
 				work.cancel_work_tag(e);
 				return;

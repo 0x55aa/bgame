@@ -2,7 +2,7 @@
 #include "apihelper.hpp"
 #include "lua_bridge.hpp"
 #include "defs/clothing_t.hpp"
-#include <iostream>
+#include "../utils/system_log.hpp"
 
 std::unordered_map<std::string, clothing_t> clothing_types;
 
@@ -13,21 +13,21 @@ const clothing_t * get_clothing_by_tag(const std::string &tag) noexcept
 
 void sanity_check_clothing() noexcept
 {
-    for (auto it = clothing_types.begin(); it != clothing_types.end(); ++it) {
-        if (it->first.empty()) std::cout << "WARNING: Empty clothing string\n";
-        if (it->second.name.empty()) std::cout << "WARNING: Empty clothing name\n";
-        if (it->second.colors.empty()) std::cout << "WARNING: " << it->first << " contains no color options\n";
-        if (it->second.slot.empty()) std::cout << "WARNING: " << it->first << " has no slot defined.\n";
+	for (auto &it : clothing_types) {
+        if (it.first.empty()) glog(log_target::LOADER, log_severity::warning, "WARNING: Empty clothing string");
+        if (it.second.name.empty()) glog(log_target::LOADER, log_severity::warning, "WARNING: Empty clothing name");
+        if (it.second.colors.empty()) glog(log_target::LOADER, log_severity::warning, "WARNING {0} contains no color options.", it.first);
+        if (it.second.slot.empty()) glog(log_target::LOADER, log_severity::warning, "WARNING {0} has no slot defined.", it.first);
     }
 }
 
 void read_clothing() noexcept
 {
-    std::string tag = "";
+    std::string tag;
     clothing_t c;
     read_lua_table("clothing",
                    [&c, &tag] (const auto &key) { tag = key; c = clothing_t{}; },
-                   [&c, &tag] (const auto &key) {
+                   [&c] (const auto &key) {
                        clothing_types[key] = c;
                    },
                    lua_parser{

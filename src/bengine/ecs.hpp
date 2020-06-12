@@ -1,151 +1,327 @@
 #pragma once
 
-#include "cereal_include.hpp"
-#include "ecs_impl.hpp"
+#include <vector>
+#include <tuple>
+#include <map>
+#include <bitset>
+#include <array>
+#include <type_traits>
+#include <memory>
+#include "../components/all_components.hpp"
+#include <cereal/archives/binary.hpp>
+#include <cereal/cereal.hpp>
+#include <cereal/types/vector.hpp>
+#include <cereal/types/map.hpp>
+#include <cereal/types/bitset.hpp>
+#include <cereal/types/utility.hpp>
+#include <cereal/types/tuple.hpp>
+#include <cereal/types/memory.hpp>
+#include "ecs_helper.hpp"
 
-namespace bengine {
+namespace bengine
+{
 
-    /* Public interface to allow existing calls to continue to work */
+	class entity_t;
 
-    extern ecs default_ecs;
+	template<class ... Components>
+	class ecs_t
+	{
+	public:
 
-    inline entity_t * entity(ecs &ECS, const std::size_t id) noexcept {
-        return ECS.entity(id);
-    }
+		ecs_t() noexcept
+		{
+			setup_index(storage, std::index_sequence_for<Components...>{});
+		}		
 
-    inline entity_t * entity(const std::size_t id) noexcept {
-        return entity(default_ecs, id);
-    }
+		entity_t * entity(const int &id) noexcept
+		{
+			entity_t * result = nullptr;
+			const auto finder = entities.find(id);
+			if (finder == entities.end()) return result;
+			//if (finder->second->is_deleted) return result;
+			result = finder->second.get();
+			return result;
+		}
 
-    inline entity_t * create_entity(ecs &ECS) {
-        return ECS.create_entity();
-    }
+		void delete_entity(const int &entity_id) noexcept
+		{
+			const auto finder = entities.find(entity_id);
+			if (finder != entities.end())
+			{
+				//finder->second.is_deleted = true;
+				const auto bfinder = component_mask.find(entity_id);
+				if (bfinder != component_mask.end())
+				{
+					bfinder->second.reset();
+				}
+				delete_components_for_entity(storage, std::index_sequence_for<Components...>{}, entity_id);
+				entities.erase(entity_id);
+			}
+		}
 
-    inline entity_t * create_entity() {
-        return create_entity(default_ecs);
-    }
+		void delete_all_entities() noexcept
+		{
+			for (auto & e : entities)
+			{
+				delete_entity(e.first);
+			}
+		}
 
-    inline entity_t * create_entity(ecs &ECS, const std::size_t new_id) {
-        return ECS.create_entity(new_id);
-    }
+		template <class ComponentToDelete>
+		void delete_component(const int &id) noexcept
+		{
+			const auto family_id = get_component_family_id<ComponentToDelete>();
 
-    inline entity_t * create_entity(const std::size_t new_id) {
-        return create_entity(default_ecs, new_id);
-    }
+			const auto entity_finder = entities.find(id);
+			if (entity_finder != entities.end())
+			{
+				// The entity exists, so clear the mask setting
+				const auto bitset_finder = component_mask.find(id);
+				if (bitset_finder != component_mask.end())
+				{
+					bitset_finder->second.reset(family_id);
+				}
 
-    inline void delete_entity(ecs &ECS, const std::size_t id) noexcept {
-        ECS.delete_entity(id);
-    }
+				// Now flag the component as deleted
+				std::get<std::pair<size_t, std::map<int, ComponentToDelete>>>(storage).second.erase(id);
+			}
+		}		
 
-    inline void delete_entity(const std::size_t id) noexcept {
-        delete_entity(default_ecs, id);
-    }
+		template <class Component>
+		constexpr size_t get_component_family_id() const noexcept
+		{
+			static_assert(!contains<Component>(), "ECS type unregistered.");
+			return std::get<std::pair<size_t, std::map<int, Component>>>(storage).first;
+		}
 
-    inline void delete_entity(ecs &ECS, entity_t &e) noexcept {
-        ECS.delete_entity(e);
-    }
+		template <class Component>
+		std::vector<entity_t *> entities_with_component() noexcept
+		{
+			std::vector<entity_t *> result;
+			auto family_id = get_component_family_id<Component>();
+			for (const auto &bitset : component_mask)
+			{
+				if (bitset.second.test(family_id)) result.emplace_back(entity(bitset.first));
+			}
 
-    inline void delete_entity(entity_t &e) noexcept {
-        delete_entity(default_ecs, e);
-    }
+			return result;
+		}
 
-    inline void delete_all_entities(ecs &ECS) noexcept {
-        ECS.delete_all_entities();
-    }
+		template <class Component>
+		Component * entity_component(const int &id) noexcept
+		{
+			const auto finder = std::get<std::pair<size_t, std::map<int, Component>>>(storage).second.find(id);
+			if (finder == std::get<std::pair<size_t, std::map<int, Component>>>(storage).second.end())
+			{
+				return nullptr;
+			} else
+			{
+				return &finder->second;
+			}
+		}
 
-    inline void delete_all_entities() noexcept {
-        delete_all_entities(default_ecs);
-    }
+		template <class ... ComponentsToIterate>
+		bool entity_has_all_of(const int &entity_id, const std::array<size_t, sizeof...(ComponentsToIterate)> &family_ids)
+		{
+			const auto bitset_finder = component_mask.find(entity_id);
+			if (bitset_finder != component_mask.end()) {
 
-    template<class C>
-    inline void delete_component(ecs &ECS, const std::size_t entity_id, bool delete_entity_if_empty=false) noexcept {
-        ECS.delete_component<C>(entity_id, delete_entity_if_empty);
-    }
+				for (const auto &bs : family_ids)
+				{
+					if (!bitset_finder->second.test(bs)) {
+						return false;
+					}
+				}
 
-    template<class C>
-    inline void delete_component(const std::size_t entity_id, bool delete_entity_if_empty=false) noexcept {
-        delete_component<C>(default_ecs, entity_id, delete_entity_if_empty);
-    }
+				return true;
+			}
+			return false;
+		}
 
-    template<class C>
-    inline std::vector<entity_t *> entities_with_component(ecs &ECS) {
-        return ECS.entities_with_component<C>();
-    }
+		template <class ComponentToIgnore>
+		bool entity_does_not_have(const int &entity_id)
+		{
+			const auto bitset_finder = component_mask.find(entity_id);
+			if (bitset_finder != component_mask.end()) {
 
-    template<class C>
-    inline std::vector<entity_t *> entities_with_component() {
-        return entities_with_component<C>(default_ecs);
-    }
+				const auto family_id = get_component_family_id<ComponentToIgnore>();
+				if (!bitset_finder->second.test(family_id)) {
+					return true;
+				}
+				return false;
+			}
+			return false;
+		}
 
-    template <class C>
-    inline void all_components(ecs &ECS, typename std::function<void(entity_t &, C &)> func) {
-        ECS.all_components<C>(func);
-    }
+		template <class ... ComponentsToIterate>
+		std::vector<std::tuple<entity_t *, ComponentsToIterate *...>> materialize_view()
+		{
+			std::vector<std::tuple<entity_t *, ComponentsToIterate *...>> result;
+			std::array<size_t, sizeof...(ComponentsToIterate)> to_test{ get_component_family_id<ComponentsToIterate>()... };
+			for (auto &entity : entities)
+			{
+				const auto entity_id = entity.first;
+				if (entity_has_all_of<ComponentsToIterate...>(entity.second, to_test))
+				{
+					result.emplace_back(
+						std::make_tuple(&entity.second, entity_component<ComponentsToIterate>(entity_id)...)
+					);
+				}
+			}
+			return result;
+		}
 
-    template <class C>
-    inline void all_components(typename std::function<void(entity_t &, C &)> func) {
-        all_components<C>(default_ecs, func);
-    }
+		template <class ... ComponentsToIterate>
+		std::vector<std::tuple<entity_t *, ComponentsToIterate *...>> materialize_view_predicate(const std::function<bool(entity_t &,ComponentsToIterate &...)> predicate)
+		{
+			std::vector<std::tuple<entity_t *, ComponentsToIterate *...>> result;
+			std::array<size_t, sizeof...(ComponentsToIterate)> to_test{ get_component_family_id<ComponentsToIterate>()... };
+			for (auto &entity : entities)
+			{
+				const auto entity_id = entity.first;
+				if (entity_has_all_of<ComponentsToIterate...>(entity.first, to_test) && predicate(*entity.second, *entity_component<ComponentsToIterate>(entity_id)...))
+				{
+					result.emplace_back(
+						std::make_tuple(entity.second.get(), entity_component<ComponentsToIterate>(entity_id)...)
+					);
+				}
+			}
+			return result;
+		}
 
-    template <typename... Cs, typename F>
-    inline void each(ecs &ECS, F callback) {
-        ECS.each<Cs...>(callback);
-    }
+		template <class ComponentToIgnore, class ... ComponentsToIterate>
+		std::vector<std::tuple<entity_t *, ComponentsToIterate *...>> materialize_view_excluding()
+		{
+			std::vector<std::tuple<entity_t *, ComponentsToIterate *...>> result;
+			std::array<size_t, sizeof...(ComponentsToIterate)> to_test{ get_component_family_id<ComponentsToIterate>()... };
+			for (auto &entity : entities)
+			{
+				const auto entity_id = entity.first;
+				if (entity_does_not_have<ComponentToIgnore>(entity.first) && entity_has_all_of<ComponentsToIterate...>(*entity.second, to_test))
+				{
+					// It matches!
+					result.emplace_back(
+						std::make_tuple(entity.second.get(), entity_component<ComponentsToIterate>(entity_id)...)
+					);
+				}
+			}
+			return result;
+		}
 
-    template <typename... Cs, typename F>
-    inline void each(F callback) {
-        each<Cs...>(default_ecs, callback);
-    }
+		template <class ... ComponentsToIterate, typename Function>
+		void each(const Function &callback) noexcept
+		{
+			std::array<size_t, sizeof...(ComponentsToIterate)> to_test{ get_component_family_id<ComponentsToIterate>()... };
+			for (auto &entity : entities)
+			{
+				const auto entity_id = entity.first;
+				if (entity_has_all_of<ComponentsToIterate...>(entity.first, to_test))
+				{
+					callback(*entity.second, *entity_component<ComponentsToIterate>(entity_id)...);
+				}
+			}
+		}
 
-	template <typename EXCLUDE, typename... Cs, typename F>
-	inline void each_without(ecs &ECS, F callback) {
-		ECS.each_without<EXCLUDE, Cs...>(callback);
+		template <class ... ComponentsToIterate, typename Predicate, typename Function>
+		void each_if(const Predicate & predicate, const Function &callback) noexcept
+		{
+			std::array<size_t, sizeof...(ComponentsToIterate)> to_test{ get_component_family_id<ComponentsToIterate>()... };
+			for (auto &entity : entities)
+			{
+				const auto entity_id = entity.first;
+				if (entity_has_all_of<ComponentsToIterate...>(entity.first, to_test) && predicate(*entity.second, *entity_component<ComponentsToIterate>(entity_id)...))
+				{
+					callback(*entity.second, *entity_component<ComponentsToIterate>(entity_id)...);
+				}
+			}
+		}
+
+		template <class ComponentToIgnore, class ... ComponentsToIterate, typename Function>
+		void each_without(const Function &callback) noexcept
+		{
+			std::array<size_t, sizeof...(ComponentsToIterate)> to_test{ get_component_family_id<ComponentsToIterate>()... };
+			for (auto &entity : entities)
+			{
+				const auto entity_id = entity.first;
+				if (entity_does_not_have<ComponentToIgnore>(entity.first) && entity_has_all_of<ComponentsToIterate...>(entity.first, to_test))
+				{
+					// It matches!
+					callback(*entity.second, *entity_component<ComponentsToIterate>(entity_id)...);
+				}
+			}
+		}
+
+		template <class ComponentToIgnore, class ComponentToIgnore2, class ... ComponentsToIterate, typename Function>
+		void each_without_both(const Function &callback) noexcept
+		{
+			std::array<size_t, sizeof...(ComponentsToIterate)> to_test{ get_component_family_id<ComponentsToIterate>()... };
+			for (auto &entity : entities)
+			{
+				const auto entity_id = entity.first;
+				if (entity_does_not_have<ComponentToIgnore>(entity_id) && entity_does_not_have<ComponentToIgnore2>(entity_id) && entity_has_all_of<ComponentsToIterate...>(entity_id, to_test))
+				{
+					// It matches!
+					callback(*entity.second, *entity_component<ComponentsToIterate>(entity_id)...);
+				}
+			}
+		}
+
+		template<class Archive>
+		void serialize(Archive & archive)
+		{
+			archive(entity_counter, entities, storage, component_mask); // serialize things by passing them to the archive
+		}
+
+		int entity_counter = 0;
+		std::map<int, std::unique_ptr<entity_t>> entities;
+		std::tuple<std::pair<size_t, std::map<int, Components>>...> storage;
+		std::map<int, std::bitset<sizeof...(Components)>> component_mask;
+	};
+
+	class entity_t
+	{
+	public:
+		int id = 0;
+		bool is_deleted = false;
+		impl::my_ecs_t * ecs = nullptr;
+
+		template <class Component>
+		entity_t * assign(Component && component) noexcept
+		{
+			if (is_deleted)
+			{
+				std::cout << "You cannot assign to a deleted entity.\n";
+				std::terminate();
+			}
+
+			auto * target_map = &std::get<std::pair<size_t, std::map<int, Component>>>(ecs->storage).second;
+			target_map->insert(std::make_pair(id, component));
+			const auto family_id = ecs->get_component_family_id<Component>();
+			ecs->component_mask[id].set(family_id);
+			return this;
+		}
+
+		template <class Component>
+		Component * component() noexcept
+		{
+			return ecs->entity_component<Component>(id);
+		}
+
+		template<class Archive>
+		void serialize(Archive & archive)
+		{
+			archive(id, is_deleted); // serialize things by passing them to the archive
+		}
+	};
+
+	inline entity_t * create_entity(impl::my_ecs_t * ecs) noexcept
+	{
+		const auto new_id = ecs->entity_counter++;
+		ecs->entities.insert(std::make_pair(new_id, std::make_unique<entity_t>()));
+		ecs->entities[new_id]->id = new_id;
+		ecs->entities[new_id]->is_deleted = false;
+		ecs->entities[new_id]->ecs = ecs;
+		return ecs->entities[new_id].get();
 	}
 
-	template <typename EXCLUDE, typename... Cs, typename F>
-	inline void each_without(F callback) {
-		each_without<EXCLUDE, Cs...>(default_ecs, callback);
-	}
-
-    template <typename... Cs, typename P, typename F>
-    inline void each_if(ecs &ECS, P&& predicate, F callback) {
-        ECS.each_if<Cs...>(predicate, callback);
-    }
-
-    template <typename... Cs, typename P, typename F>
-    inline void each_if(P&& predicate, F callback) {
-        each_if<Cs...>(default_ecs, predicate, callback);
-    }
-
-    inline void ecs_garbage_collect(ecs &ECS) {
-        ECS.ecs_garbage_collect();
-    }
-
-    inline void ecs_garbage_collect() {
-        ecs_garbage_collect(default_ecs);
-    }
-
-    inline void ecs_save(ecs &ECS, std::unique_ptr<std::ofstream> &lbfile) {
-        ECS.ecs_save(lbfile);
-    }
-
-    inline void ecs_save(std::unique_ptr<std::ofstream> &lbfile) {
-        ecs_save(default_ecs, lbfile);
-    }
-
-    inline void ecs_load(ecs &ECS, std::unique_ptr<std::ifstream> &lbfile) {
-        ECS.ecs_load(lbfile);
-    }
-
-    inline void ecs_load(std::unique_ptr<std::ifstream> &lbfile) {
-        ecs_load(default_ecs, lbfile);
-    }
-
-    inline std::string ecs_profile_dump(ecs &ECS) {
-        return ECS.ecs_profile_dump();
-    }
-
-    inline std::string ecs_profile_dump() {
-        return ecs_profile_dump(default_ecs);
-    }
 }

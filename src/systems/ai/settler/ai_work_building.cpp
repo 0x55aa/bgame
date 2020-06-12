@@ -1,22 +1,19 @@
+#include "stdafx.h"
 #include "ai_work_building.hpp"
 #include "templated_work_steps_t.hpp"
-#include "../../../components/ai_tags/ai_tag_work_building.hpp"
 #include "../../helpers/inventory_assistant.hpp"
 #include "../../../bengine/telemetry.hpp"
 #include "../../../raws/buildings.hpp"
 #include "../../../raws/defs/building_def_t.hpp"
-#include "../../../components/buildings/building.hpp"
-#include "../../../components/buildings/construct_provides_sleep.hpp"
-#include "../../../components/lightsource.hpp"
-#include "../../../components/buildings/construct_provides_door.hpp"
-#include "../../../components/lever.hpp"
-#include "../../../components/buildings/receives_signal.hpp"
-#include "../../../components/buildings/smoke_emitter.hpp"
 #include "../../physics/visibility_system.hpp"
 #include "../workflow_system.hpp"
 #include "../../physics/topology_system.hpp"
 #include "../../gui/particle_system.hpp"
 #include "../../../global_assets/building_designations.hpp"
+#include <fmt/ostream.h>
+#include "../../../render_engine/vox/renderables.hpp"
+#include "../distance_map_system.hpp"
+#include "../../physics/trigger_system.hpp"
 
 namespace systems {
 	namespace ai_building {
@@ -62,7 +59,7 @@ namespace systems {
 					b.step = ai_tag_work_building::building_steps::SELECT_COMPONENT;
 					const auto building_component = target_entity->component<building_t>();
 					if (building_component) {
-						std::stringstream ss;
+						fmt::MemoryWriter ss;
 						ss << "Building " << get_building_def(building_component->tag)->name;
 						work.set_status(e, ss.str().c_str());
 						target_entity->assign(claimed_t{ e.id });
@@ -232,6 +229,7 @@ namespace systems {
 				for (const auto &provides : finder->provides) {
 					if (provides.provides == provides_sleep) {
 						entity(b.building_target.building_entity)->assign(construct_provides_sleep_t{});
+						distance_map::refresh_bed_map();
 					}
 					else if (provides.provides == provides_light) {
 						entity(b.building_target.building_entity)->assign(lightsource_t{ provides.radius, provides.color });
@@ -243,17 +241,80 @@ namespace systems {
 						|| provides.provides == provides_stairs_up
 						|| provides.provides == provides_stairs_down ||
 						provides.provides == provides_stairs_updown
-						|| provides.provides == provides_ramp || provides.provides == provides_stonefall_trap
-						|| provides.provides == provides_cage_trap || provides.provides == provides_blades_trap
-						|| provides.provides == provides_spikes)
+						|| provides.provides == provides_ramp)
 					{
 						topology::perform_construction(b.building_target.building_entity, tag, material);
 					}
-					else if (provides.provides == provides_signal_recipient) {
+					else if (provides.provides == provides_signal_recipient || provides.provides == provides_spikes) {
 						entity(b.building_target.building_entity)->assign(receives_signal_t{});
 					}
 					else if (provides.provides == provides_lever) {
 						entity(b.building_target.building_entity)->assign(lever_t{});
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+					}
+					else if (provides.provides == provides_oscillator) {
+						entity(b.building_target.building_entity)->assign(oscillator_t{});
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+					}
+					else if (provides.provides == provides_proximity_sensor) {
+						entity(b.building_target.building_entity)->assign(proximity_sensor_t{});
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+						entity(b.building_target.building_entity)->assign(viewshed_t{ 8, false, true });
+					}
+					else if (provides.provides == provides_and_gate) {
+						entity(b.building_target.building_entity)->assign(signal_processor_t{ false, AND });
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+						entity(b.building_target.building_entity)->assign(receives_signal_t{});
+					}
+					else if (provides.provides == provides_or_gate) {
+						entity(b.building_target.building_entity)->assign(signal_processor_t{ false, OR });
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+						entity(b.building_target.building_entity)->assign(receives_signal_t{});
+					}
+					else if (provides.provides == provides_not_gate) {
+						entity(b.building_target.building_entity)->assign(signal_processor_t{ false, NOTGATE });
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+						entity(b.building_target.building_entity)->assign(receives_signal_t{});
+					}
+					else if (provides.provides == provides_nand_gate) {
+						entity(b.building_target.building_entity)->assign(signal_processor_t{ false, NAND });
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+						entity(b.building_target.building_entity)->assign(receives_signal_t{});
+					}
+					else if (provides.provides == provides_nor_gate) {
+						entity(b.building_target.building_entity)->assign(signal_processor_t{ false, NOR });
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+						entity(b.building_target.building_entity)->assign(receives_signal_t{});
+					}
+					else if (provides.provides == provides_xor_gate) {
+						entity(b.building_target.building_entity)->assign(signal_processor_t{ false, XOR });
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+						entity(b.building_target.building_entity)->assign(receives_signal_t{});
+					}
+					else if (provides.provides == provides_pressure_plate) {
+						entity(b.building_target.building_entity)->assign(entry_trigger_t{ TRIGGER_PRESSURE });
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+					}
+					else if (provides.provides == provides_float_gauge) {
+						entity(b.building_target.building_entity)->assign(float_gauge_t{false, 10});
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+					}
+					else if (provides.provides == provides_proximity_sensor) {
+						entity(b.building_target.building_entity)->assign(proximity_sensor_t{ false, 8 });
+						entity(b.building_target.building_entity)->assign(sends_signal_t{});
+						entity(b.building_target.building_entity)->assign(viewshed_t{8, false});
+					}
+					else if (provides.provides == provides_support) {
+						entity(b.building_target.building_entity)->assign(receives_signal_t{});
+						entity(b.building_target.building_entity)->assign(construct_support_t{});
+					}
+					else if (provides.provides == provides_stonefall_trap
+						|| provides.provides == provides_cage_trap || provides.provides == provides_blades_trap)
+					{
+						if (provides.provides == provides_stonefall_trap) entity(b.building_target.building_entity)->assign(entry_trigger_t{ TRIGGER_STONEFALL });
+						if (provides.provides == provides_cage_trap) entity(b.building_target.building_entity)->assign(entry_trigger_t{ TRIGGER_CAGE });
+						if (provides.provides == provides_blades_trap) entity(b.building_target.building_entity)->assign(entry_trigger_t{ TRIGGER_BLADE });
+						systems::triggers::triggers_changed.enqueue(triggers::triggers_changed_message{});
 					}
 				}
 				if (finder->emits_smoke) {

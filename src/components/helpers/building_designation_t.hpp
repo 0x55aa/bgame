@@ -3,7 +3,6 @@
 #include <istream>
 #include <ostream>
 #include <vector>
-#include <cereal/cereal.hpp>
 #include "../../raws/reaction_input.hpp"
 #include "../../bengine/rexspeeder.hpp"
 
@@ -18,11 +17,5 @@ struct building_designation_t {
     int height;
     std::vector<xp::vchar> glyphs;
 	std::vector<xp::vchar> glyphs_ascii;
-	std::size_t building_entity = 0;
-
-	template<class Archive>
-	void serialize(Archive & archive)
-	{
-		archive( x, y, z, component_ids, name, tag, components, width, height, glyphs, building_entity, glyphs_ascii ); // serialize things by passing them to the archive
-	}
+	int building_entity = 0;
 };

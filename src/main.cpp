@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include "bengine/main_window.hpp"
 #include "main_loops/splash_screen.hpp"
 #ifdef __APPLE__
@@ -7,6 +8,7 @@
 #include "bengine/filesystem.hpp"
 #include "global_assets/game_config.hpp"
 #include "main_loops/first_run_screen.hpp"
+#include "utils/system_log.hpp"
 
 using namespace bengine;
 
@@ -24,8 +26,8 @@ int main() {
     pid = getpid();
     ret = proc_pidpath (pid, pathbuf, sizeof(pathbuf));
     if ( ret <= 0 ) {
-        fprintf(stderr, "PID %d: proc_pidpath ();\n", pid);
-        fprintf(stderr, "    %s\n", strerror(errno));
+        //fprintf(stderr, "PID %d: proc_pidpath ();\n", pid);
+        //fprintf(stderr, "    %s\n", strerror(errno));
     } else {
         //printf("proc %d: %s\n", pid, pathbuf);
         executable_path = pathbuf;
@@ -33,7 +35,7 @@ int main() {
 
     remove_from_path(executable_path, std::string("/"));
 
-    std::cout << executable_path << "\n";
+    //std::cout << executable_path << "\n";
     chdir(executable_path.c_str());
 
 #endif // apple
@@ -50,7 +52,7 @@ int main() {
 	if (first_run) {
 		main_func = first_run_screen::tick;
 		if (first_run_screen::first_run_done) first_run = false;
-		std::cout << "Launching first run screen\n";
+		gamelog(log_target::LOADER, log_severity::info, "Launching first run screen");
 	}
 	else {
 		splash_screen::init();

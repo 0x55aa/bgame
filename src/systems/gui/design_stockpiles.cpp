@@ -1,13 +1,15 @@
-#include "../../global_assets/game_designations.hpp"
+#include "stdafx.h"
+#include "design_stockpiles.hpp"
 #include "../../bengine/IconsFontAwesome.h"
 #include "../../bengine/imgui.h"
-#include "../../bengine/imgui_impl_glfw_gl3.h"
 #include "../mouse.hpp"
-#include "../../components/stockpile.hpp"
 #include "../../global_assets/game_mode.hpp"
 #include "../../planet/region/region.hpp"
 #include "../../raws/items.hpp"
 #include "../../raws/defs/item_def_t.hpp"
+#include "../../render_engine/chunks/chunks.hpp"
+
+using namespace tile_flags;
 
 namespace systems {
 	namespace design_stockpiles {
@@ -23,9 +25,9 @@ namespace systems {
 				stockpiles.emplace_back(std::make_pair(e.id, std::string("Stockpile #" + std::to_string(e.id))));
 			});
 			std::vector<const char *> stockpile_listbox_items(stockpiles.size());
-			for (int i = 0; i<stockpiles.size(); ++i) {
+			for (std::size_t i = 0; i<stockpiles.size(); ++i) {
 				stockpile_listbox_items[i] = stockpiles[i].second.c_str();
-				if (i == selected_stockpile) current_stockpile = stockpiles[i].first;
+				if (i == static_cast<size_t>(selected_stockpile)) current_stockpile = stockpiles[i].first;
 			}
 
 			// Stockpiles list
@@ -36,7 +38,7 @@ namespace systems {
 				ImGui::ListBox("## Stockpiles", &selected_stockpile, &stockpile_listbox_items.at(0), stockpile_listbox_items.size(), 10);
 			}
 			if (ImGui::Button("+ Add Stockpile")) {
-				auto sp = create_entity()->assign(stockpile_t{});
+				const auto sp = create_entity()->assign(stockpile_t{});
 				current_stockpile = sp->id;
 			}
 			ImGui::SameLine();
@@ -51,19 +53,27 @@ namespace systems {
 				if (sp_entity) {
 					auto sp = sp_entity->component<stockpile_t>();
 					if (sp) {
-						each_stockpile([&sp](stockpile_def_t * it) {
+						auto count = 0;
+						each_stockpile([&sp, &count](stockpile_def_t * it) {
 							if (sp->category.test(it->index)) {
-								const std::string sp_label = std::string(ICON_FA_CHECK) + std::string(" ") + it->name;
+								ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.0f, 0.6f, 0.0f, 1.0f });
+								const auto sp_label = std::string(ICON_FA_CHECK) + std::string(" ") + it->name;
 								if (ImGui::Button(sp_label.c_str())) {
 									sp->category.reset(it->index);
 								}
+								ImGui::PopStyleColor();
 							}
 							else {
-								const std::string sp_label = std::string(ICON_FA_TIMES) + std::string(" ") + it->name;
+								ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.6f, 0.0f, 0.0f, 1.0f });
+								const auto sp_label = std::string(ICON_FA_TIMES) + std::string(" ") + it->name;
 								if (ImGui::Button(sp_label.c_str())) {
 									sp->category.set(it->index);
 								}
+								ImGui::PopStyleColor();
 							}
+							if (count != 5) ImGui::SameLine();
+							++count;
+							count = count % 6;
 						});
 					}
 				}
@@ -78,6 +88,7 @@ namespace systems {
 						if (stockpile_id(idx) == 0) {
 							set_stockpile_id(idx, current_stockpile);
 							calc_render(idx);
+							chunks::mark_chunk_dirty_by_tileidx(idx);
 						}
 						else {
 							current_stockpile = stockpile_id(idx);
@@ -86,6 +97,7 @@ namespace systems {
 					else if (right_click) {
 						set_stockpile_id(idx, 0);
 						calc_render(idx);
+						chunks::mark_chunk_dirty_by_tileidx(idx);
 					}
 				}
 			}

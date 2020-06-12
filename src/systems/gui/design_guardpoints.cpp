@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include "design_guardpoints.hpp"
 #include "../../global_assets/game_designations.hpp"
 #include "../../bengine/IconsFontAwesome.h"
@@ -5,6 +6,9 @@
 #include "../../bengine/imgui_impl_glfw_gl3.h"
 #include "../mouse.hpp"
 #include "../../planet/region/region.hpp"
+#include <algorithm>
+
+using namespace tile_flags;
 
 namespace systems {
 	namespace design_guardpoints {

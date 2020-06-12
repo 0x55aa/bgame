@@ -1,15 +1,11 @@
+#include "stdafx.h"
 #include "ai_work_farm_fixsoil.hpp"
 #include "templated_work_steps_t.hpp"
-#include "../../../components/ai_tags/ai_tag_work_farm_fixsoil.hpp"
-#include "../../../components/farming/designated_farmer.hpp"
 #include "../../../global_assets/farming_designations.hpp"
-#include "../../../components/claimed_t.hpp"
-#include "../../../components/item_tags/item_farming.hpp"
 #include "../../helpers/inventory_assistant.hpp"
-#include "../../damage/damage_system.hpp"
 #include "../../../render_engine/chunks/chunks.hpp"
-#include "../../../components/item_tags/item_topsoil_t.hpp"
 #include "../../../bengine/telemetry.hpp"
+#include "../../helpers/targeted_flow_map.hpp"
 
 namespace systems {
 	namespace ai_farm_fixsoil {
@@ -156,7 +152,7 @@ namespace systems {
 			const int idx = mapidx(pos);
 			auto farm_finder = farm_designations->farms.find(idx);
 			if (farm_finder == farm_designations->farms.end() || farm_finder->second.state != farm_steps::FIX_SOIL) {
-				std::cout << "Bailing out - not relevant anymore!";
+				//std::cout << "Bailing out - not relevant anymore!";
 				work.cancel_work_tag(e);
 				inventory_system::drop_item(h.soil_id, pos.x, pos.y, pos.z);
 				return;

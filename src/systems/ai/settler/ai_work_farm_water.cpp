@@ -1,16 +1,13 @@
+#include "stdafx.h"
 #include "ai_work_farm_water.hpp"
 #include "templated_work_steps_t.hpp"
-#include "../../../components/ai_tags/ai_tag_work_farm_water.hpp"
-#include "../../../components/farming/designated_farmer.hpp"
 #include "../../../global_assets/farming_designations.hpp"
-#include "../../../components/claimed_t.hpp"
-#include "../../../components/item_tags/item_farming.hpp"
 #include "../../helpers/inventory_assistant.hpp"
 #include "../../damage/damage_system.hpp"
 #include "../../../render_engine/chunks/chunks.hpp"
 #include "ai_work_farm_water.hpp"
-#include "../../../components/item_tags/item_seed_t.hpp"
 #include "../../../bengine/telemetry.hpp"
+#include "../../helpers/targeted_flow_map.hpp"
 
 namespace systems {
 	namespace ai_farm_water {
@@ -68,7 +65,7 @@ namespace systems {
 			for (const auto &f : farm_designations->farms) {
 				if (f.second.state == farm_steps::GROWING && f.second.days_since_watered > 0) {
 					auto[X, Y, Z] = idxmap(f.first);
-					std::cout << X << "/" << Y << "/" << Z << "\n";
+					//std::cout << X << "/" << Y << "/" << Z << "\n";
 					const float distance = bengine::distance3d(pos.x, pos.y, pos.z, X, Y, Z);
 					plant_targets.insert(std::make_pair(static_cast<int>(distance), std::make_pair(position_t{ X, Y, Z }, &f.second)));
 				}
@@ -106,7 +103,7 @@ namespace systems {
 
 			auto farm_finder = farm_designations->farms.find(idx);
 			if (farm_finder == farm_designations->farms.end() || farm_finder->second.state != farm_steps::GROWING || farm_finder->second.days_since_watered == 0) {
-				std::cout << "Bailing out - not relevant anymore!";
+				//std::cout << "Bailing out - not relevant anymore!";
 				work.cancel_work_tag(e);
 				return;
 			}

@@ -1,20 +1,15 @@
+#include "stdafx.h"
 #include "settler_ranged_attack_system.hpp"
 #include "../../utils/thread_safe_message_queue.hpp"
-#include "../../components/game_stats.hpp"
-#include "../../components/position.hpp"
 #include "../helpers/weapons_helper.hpp"
-#include "../../components/items/item.hpp"
 #include "../../raws/items.hpp"
 #include "../../raws/defs/item_def_t.hpp"
 #include "../../raws/materials.hpp"
 #include "../../raws/defs/material_def_t.hpp"
-#include "../../components/logger.hpp"
 #include "../gui/log_system.hpp"
 #include "../../global_assets/rng.hpp"
 #include "damage_system.hpp"
 #include "../gui/particle_system.hpp"
-#include "../../components/items/item_quality.hpp"
-#include "../../components/items/item_wear.hpp"
 #include "../helpers/inventory_assistant.hpp"
 
 namespace systems {
@@ -44,7 +39,7 @@ namespace systems {
 
 				// TODO: civ_dislike_attacker(defender);
 
-				auto [weapon_id, ammo_id] = get_ranged_and_ammo_id(msg.attacker);
+				auto [weapon_id, ammo_id] = get_ranged_and_ammo_id(*attacker);
 				std::string weapon_name = "fists";
 				int weapon_n = 1;
 				int weapon_d = 4;

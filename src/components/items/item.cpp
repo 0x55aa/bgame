@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include "item.hpp"
 #include "../../raws/clothing.hpp"
 #include "../../raws/defs/clothing_t.hpp"
@@ -5,6 +6,8 @@
 #include "../../raws/raws.hpp"
 #include "../../raws/materials.hpp"
 #include "../../global_assets/rng.hpp"
+#include "../../raws/items.hpp"
+#include "../../utils/system_log.hpp"
 
 bengine::color_t colname_to_col(const std::string &col)
 {
@@ -19,11 +22,11 @@ bengine::color_t colname_to_col(const std::string &col)
     if (col == "pink") return bengine::color_t((uint8_t )250,105,180);
     if (col == "brown") return bengine::color_t((uint8_t )98, 74, 46);
     if (col == "khaki") return bengine::color_t((uint8_t )240, 230, 140);
-    std::cout << "WARNING: Unknown clothing color: " << col << "\n";
+	glog(log_target::LOADER, log_severity::warning, "Unknown clothing color: {0}", col);
     return bengine::color_t((uint8_t )250,250,250);
 }
 
-item_t::item_t(const std::string name) : item_tag(name), type(CLOTHING) {
+item_t::item_t(const std::string name) noexcept : item_tag(name), type(CLOTHING) {
     //std::cout << "[" << item_tag << "]\n";
     auto finder = get_item_def(item_tag);
     if (finder != nullptr) {
@@ -39,12 +42,12 @@ item_t::item_t(const std::string name) : item_tag(name), type(CLOTHING) {
             }
         } else {
             item_name = "ERROR";
-            std::cout << item_tag << " not found!\n";
+			glog(log_target::LOADER, log_severity::error, "{0} not found", item_tag);
         }
     }
 }
 
-item_t::item_t(const std::string tag, const std::string name, const std::size_t mat, int stack, int clothing) :
+item_t::item_t(const std::string tag, const std::string name, const std::size_t mat, int stack, int clothing) noexcept :
         item_name(name), item_tag(tag), type(ITEM), material(mat), stack_size(stack)
 {
     item_name = material_name(mat) + std::string(" ") + item_name;

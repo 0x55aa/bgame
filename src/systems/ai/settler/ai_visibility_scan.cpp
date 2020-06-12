@@ -1,16 +1,8 @@
+#include "stdafx.h"
 #include "ai_visibility_scan.hpp"
-#include "../../../components/sentient_ai.hpp"
-#include "../../../components/settler_ai.hpp"
-#include "../../../components/grazer_ai.hpp"
 #include "../../../global_assets/game_planet.hpp"
 #include "../../../global_assets/game_designations.hpp"
-#include "../../../components/ai_tags/ai_tag_my_turn.hpp"
-#include "../../../components/viewshed.hpp"
-#include "../../../components/initiative.hpp"
-#include "../../../components/buildings/turret_t.hpp"
-#include "../../../components/health.hpp"
 #include "../../physics/movement_system.hpp"
-#include "../../../components/riding_t.hpp"
 #include "../../helpers/weapons_helper.hpp"
 #include "../../damage/creature_attacks_system.hpp"
 #include "../distance_map_system.hpp"
@@ -18,7 +10,7 @@
 #include "../../damage/settler_melee_attacks_system.hpp"
 #include "../../damage/settler_ranged_attack_system.hpp"
 #include "../../damage/turret_ranged_attack_system.hpp"
-#include "../../../components/helpers/standing_orders.hpp"
+#include "../../../bengine/geometry.hpp"
 
 namespace systems {
 	namespace ai_visibility_scan {
@@ -28,7 +20,7 @@ namespace systems {
 		struct spotted_hostile_t {
 			bool terrified = false;
 			float terror_distance = std::numeric_limits<float>::max();
-			std::size_t closest_fear = 0;
+			int closest_fear = 0;
 		};
 
 		spotted_hostile_t can_see_hostile(const bengine::entity_t &e, const position_t &pos, const viewshed_t &view, const std::function<bool(bengine::entity_t&)> &test) {
@@ -65,28 +57,24 @@ namespace systems {
 			if (other.component<settler_ai_t>() || other.component<sentient_ai>()) {
 				return true;
 			}
-			else {
-				return false;
-			}
+			return false;			
 		}
 
 		bool sentient_hostile_scan(entity_t &other) {
-			bool hostile_sentient = false;
-			auto other_sentient = other.component<sentient_ai>();
+			auto hostile_sentient = false;
+			const auto other_sentient = other.component<sentient_ai>();
 			if (other_sentient) {
-				const std::size_t my_civ = ai_visibility::ai->civ_id;
-				const std::size_t their_civ = other_sentient->civ_id;
+				const auto my_civ = ai_visibility::ai->civ_id;
+				const auto their_civ = other_sentient->civ_id;
 				if (my_civ != their_civ) {
-					auto civfinder = planet.civs.civs[my_civ].relations.find(their_civ);
+					const auto civfinder = planet.civs.civs[my_civ].relations.find(their_civ);
 					if (civfinder != planet.civs.civs[my_civ].relations.end()) {
 						if (civfinder->second < 0) hostile_sentient = true;
 					}
 				}
 			}
 
-			if ((other.component<grazer_ai>()) ||
-				(other.component<settler_ai_t>() && ai_visibility::ai->hostile) ||
-				hostile_sentient)
+			if ((other.component<grazer_ai>()) || (other.component<settler_ai_t>() && ai_visibility::ai->hostile) || hostile_sentient)
 			{
 				return true;
 			}
@@ -190,14 +178,12 @@ namespace systems {
 						if (health) {
 							if (!health->unconscious) {
 								creature_attacks::request_attack(creature_attacks::creature_attack_message{ e.id, hostile.closest_fear });
-								distance_map::refresh_hunting_map();
 								delete_component<ai_tag_my_turn_t>(e.id);
 							}
 						}
 					}
 					else {
 						systems::movement::request_flee(e.id, hostile.closest_fear);
-						distance_map::refresh_hunting_map();
 						delete_component<ai_tag_my_turn_t>(e.id);
 					}
 				}
@@ -232,7 +218,8 @@ namespace systems {
 				else if (settler) {
 					// Run away! Eventually, we want the option for combat here based on morale. Also, when hunting
 					// is implemented it's a good idea not to run away from your target.
-					const int range = weapons::shooting_range(e, pos);
+					const auto range = weapons::shooting_range(e, pos);
+					//std::cout << "Range: " << range << "\n";
 					if (hostile.terror_distance < 1.5F) {
 						// Hit it with melee weapon
 						settler_melee_attack::request_melee(settler_melee_attack::settler_attack_message{ e.id, hostile.closest_fear });

@@ -1,9 +1,6 @@
+#include "stdafx.h"
 #include "stockpile_system.hpp"
 #include "../../planet/region/region.hpp"
-#include "../../components/stockpile.hpp"
-#include "../../components/items/item_stored.hpp"
-#include "../../components/items/item.hpp"
-#include "../../components/claimed_t.hpp"
 #include "../../raws/defs/item_def_t.hpp"
 #include "../../raws/items.hpp"
 
@@ -13,8 +10,8 @@ namespace systems {
 		using namespace region;
 		using namespace bengine;
 
-		std::unordered_map<std::size_t, stockpile_info_t> stockpiles;
-		std::unordered_map<int, std::vector<std::size_t>> stockpile_targets;
+		std::unordered_map<int, stockpile_info_t> stockpiles;
+		std::unordered_map<int, std::vector<int>> stockpile_targets;
 		std::vector<storable_item_t> storable_items;
 
 		using namespace bengine;
@@ -35,7 +32,7 @@ namespace systems {
 					if (sp.category.test(i)) {
 						auto finder = stockpile_targets.find(e.id);
 						if (finder == stockpile_targets.end()) {
-							stockpile_targets[i] = std::vector<std::size_t>{ e.id };
+							stockpile_targets[i] = std::vector<int>{ e.id };
 						}
 						else {
 							stockpile_targets[i].push_back(e.id);
@@ -87,10 +84,7 @@ namespace systems {
 				if (finder == stockpile_targets.end()) return; // If there's nowhere interested, escape
 				for (const auto &stockpile_id : finder->second) {
 					if (stockpiles[stockpile_id].free_capacity > 0) {
-						--stockpiles[stockpile_id].free_capacity;
-						int destination_idx = *stockpiles[stockpile_id].open_tiles.begin();
-						stockpiles[stockpile_id].open_tiles.erase(destination_idx);
-						storable_items.push_back(storable_item_t{ e.id, destination_idx });
+						storable_items.emplace_back(storable_item_t{ e.id, stockpile_id });
 						return; // Bail out since we've done this item
 					}
 				}

@@ -1,12 +1,11 @@
+#include "stdafx.h"
 #include "splash_screen.hpp"
 #include "../global_assets/texture_storage.hpp"
 #include "../bengine/textures.hpp"
 #include "../global_assets/shader_storage.hpp"
-#include "../bengine/shaders.hpp"
 #include "../bengine/simple_sprite.hpp"
 #include "../bengine/imgui.h"
 #include "../bengine/imgui_impl_glfw_gl3.h"
-#include "../bengine/threadpool.h"
 #include "../raws/raws.hpp"
 #include "../raws/biomes.hpp"
 #include "../bengine/main_window.hpp"
@@ -14,8 +13,11 @@
 #include "../bengine/telemetry.hpp"
 #include "../global_assets/game_config.hpp"
 #include "../bengine/stb_image.h"
+#include "../bengine/stb_image_resize.h"
 #include "../raws/materials.hpp"
 #include "../render_engine/vox/voxreader.hpp"
+#include <boost/filesystem/operations.hpp>
+#include <thread>
 
 using namespace bengine;
 using namespace assets;
@@ -38,34 +40,16 @@ namespace splash_screen {
     static int tex_idx = 0;
 
     /* Loads enough to get things started. */
-    void init() {
+    void init() noexcept {
         init_simple_sprite();
         bracket_logo = std::make_unique<texture_t>("game_assets/bracket-logo.jpg");
         ascii_texture = std::make_unique<texture_t>("game_assets/hack_square_64x64.jpg", false);
-        spriteshader = load_shaders("game_assets/spriteshader_vertex.glsl", "game_assets/spriteshader_fragment.glsl");
-        worldgenshader = load_shaders("game_assets/worldgenshader_vertex.glsl", "game_assets/worldgenshader_fragment.glsl");
-        chunkshader = std::make_unique<chunk_shader_t>();
-        depthquad_shader = load_shaders("game_assets/depthquad_vertex.glsl", "game_assets/depthquad_fragment.glsl");
-        lightstage_shader = std::make_unique<lightstage_shader_t>();
-        tonemap_shader = load_shaders("game_assets/tonemap_vertex.glsl", "game_assets/tonemap_fragment.glsl");
-        bloom_shader = load_shaders("game_assets/bloom_vertex.glsl", "game_assets/bloom_fragment.glsl");
-        sprite_shader = load_shaders("game_assets/sprite_shader_vertex.glsl", "game_assets/sprite_shader_fragment.glsl");
-        voxel_shader = std::make_unique<voxel_shader_t>();
-        voxel_shadow_shader = std::make_unique<voxel_shadow_shader_t>();
-        cursor_shader = load_shaders("game_assets/highlight_vertex.glsl", "game_assets/highlight_fragment.glsl");
-        particle_shader = load_shaders("game_assets/particle_vertex.glsl", "game_assets/particle_fragment.glsl");
-        dirlight_shader = load_shaders("game_assets/dirlight_vertex.glsl", "game_assets/dirlight_fragment.glsl");
-        lighter_shader = load_shaders("game_assets/lighter_vertex.glsl", "game_assets/lighter_fragment.glsl");
-		pointlight_shader = load_shaders("game_assets/pointlight_vertex.glsl", "game_assets/pointlight_fragment.glsl", "game_assets/pointlight_geometry.glsl");
-		ascii_shader = load_shaders("game_assets/ascii_vertex.glsl", "game_assets/ascii_fragment.glsl");
-		ascii_light_shader = load_shaders("game_assets/ascii_light_vertex.glsl", "game_assets/ascii_light_fragment.glsl");
+		assets::initialize_shaders();
 	}
 
-    static inline void init_raws(int id) {
-        std::cout << "RAW INIT - Seen thread " << id << "\n";
+    static void init_raws() {
         load_raws();
         initialized_raws.store(true);
-        std::cout << "RAW INIT DONE\n";
     }
 
     static inline void load_worldgen_textures() {
@@ -106,84 +90,103 @@ namespace splash_screen {
         glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
     }
 
-    constexpr int TEX_SIZE = 256; // This is probably too high
     constexpr int CURSOR_SIZE = 128;
 
-    static inline std::tuple<unsigned char *, int, int, int> load_texture_to_ram(const std::string filename) {
+    static inline std::tuple<unsigned char *, int, int, int> load_texture_to_ram(const std::string &filename) {
         int width, height, bpp;
         stbi_set_flip_vertically_on_load(true);
         unsigned char *image_data = stbi_load(filename.c_str(), &width, &height, &bpp, STBI_rgb);
         if (image_data == nullptr) throw std::runtime_error(std::string("Cannot open: ") + filename);
-        std::cout << "Loaded " << filename << ", " << width << ", " << height << ", " << bpp << "\n";
-        assert(width == TEX_SIZE && height == TEX_SIZE);
+        //std::cout << "Loaded " << filename << ", " << width << ", " << height << ", " << bpp << "\n";
+        //assert(width == TEX_SIZE && height == TEX_SIZE);
+
+		if (width != config::game_config.texture_size || height != config::game_config.texture_size)
+		{
+			// Resize the image
+			unsigned char * new_image_data = (unsigned char *)malloc(config::game_config.texture_size * config::game_config.texture_size * 3);
+			stbir_resize(image_data, width, height, 0, new_image_data, config::game_config.texture_size, config::game_config.texture_size, 0, STBIR_TYPE_UINT8, 3, 0, 0, STBIR_EDGE_ZERO, STBIR_EDGE_ZERO, STBIR_FILTER_CUBICBSPLINE, STBIR_FILTER_CUBICBSPLINE, STBIR_COLORSPACE_SRGB, nullptr);
+			stbi_image_free(image_data);
+			image_data = new_image_data;
+		}
+
         return std::make_tuple(image_data, width, height, bpp);
     }
 
-	static inline std::tuple<unsigned char *, int, int, int> load_cursor_texture_to_ram(const std::string filename) {
+	static inline std::tuple<unsigned char *, int, int, int> load_cursor_texture_to_ram(const std::string &filename) {
         int width, height, bpp;
         stbi_set_flip_vertically_on_load(true);
         unsigned char *image_data = stbi_load(filename.c_str(), &width, &height, &bpp, STBI_rgb_alpha);
         if (image_data == nullptr) throw std::runtime_error(std::string("Cannot open: ") + filename);
-        std::cout << "Loaded " << filename << ", " << width << ", " << height << ", " << bpp << "\n";
+        //std::cout << "Loaded " << filename << ", " << width << ", " << height << ", " << bpp << "\n";
         assert(width == CURSOR_SIZE && height == CURSOR_SIZE);
         return std::make_tuple(image_data, width, height, bpp);
     }
 
 	static inline void load_chunk_textures() {
         const int num_actual_textures = static_cast<int>(material_textures.size() * 3);
-        std::cout << "# Textures in array: " << num_actual_textures << "\n";
+        //std::cout << "# Textures in array: " << num_actual_textures << "\n";
 
         glGenTextures(1, &assets::chunk_texture_array);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D_ARRAY, assets::chunk_texture_array);
 
+		const auto max_mip_levels = std::min(static_cast<int>(1 + std::floor(std::log2(config::game_config.texture_size))), GL_TEXTURE_MAX_LEVEL-1);
+		const auto n_mip_levels = config::game_config.mip_levels == 0 ? max_mip_levels : config::game_config.mip_levels;
+
         glTexStorage3D( GL_TEXTURE_2D_ARRAY,
-                        2, // 4-levels of mipmap
-                        GL_RGB8, // Internal format
-                        TEX_SIZE, TEX_SIZE, // Width and height
-                        num_actual_textures
+			n_mip_levels, // 4-levels of mipmap
+            GL_SRGB8, // Internal format
+			config::game_config.texture_size, config::game_config.texture_size, // Width and height
+            num_actual_textures
         );
 
-        int load_index = 0;
+        auto load_index = 0;
         for (std::size_t i=0; i<material_textures.size(); ++i) {
-            const std::string stem = material_textures[i];
-            const std::string albedo = stem + "-t.jpg";
-            const std::string normal = stem + "-n.jpg";
-            const std::string occlusion = stem + "-ao.jpg";
-            const std::string metal = stem + "-m.jpg";
-            const std::string rough = stem + "-r.jpg";
+            const auto stem = material_textures[i];
+            const auto albedo = stem + "-t.jpg";
+            const auto normal = stem + "-n.jpg";
+            const auto occlusion = stem + "-ao.jpg";
+            const auto metal = stem + "-m.jpg";
+            const auto rough = stem + "-r.jpg";
 
             auto albedo_tex = load_texture_to_ram(albedo);
             auto normal_tex = load_texture_to_ram(normal);
             auto occlusion_tex = load_texture_to_ram(occlusion);
-            auto metal_tex = load_texture_to_ram(metal);
+
+			std::tuple<unsigned char *, int, int, int> metal_tex;
+			if (boost::filesystem::exists(metal)) {
+				metal_tex = load_texture_to_ram(metal);
+			} else
+			{
+				metal_tex = load_texture_to_ram("game_assets/terrain/metal-template.jpg");
+			}
             auto rough_tex = load_texture_to_ram(rough);
 
             // Albedo and normal are stored directly as idx+0, idx+1
             glTexSubImage3D(
-                    GL_TEXTURE_2D_ARRAY,
-                    0, // Mipmap number
-                    0, 0, load_index, // x/y/z offsets
-                    TEX_SIZE, TEX_SIZE, 1, // width, height, depth
-                    GL_RGB, // format
-                    GL_UNSIGNED_BYTE, // type
-                    std::get<0>(albedo_tex) // Color data
+                GL_TEXTURE_2D_ARRAY,
+                0, // Mipmap number
+                0, 0, load_index, // x/y/z offsets
+				config::game_config.texture_size, config::game_config.texture_size, 1, // width, height, depth
+                GL_RGB, // format
+                GL_UNSIGNED_BYTE, // type
+                std::get<0>(albedo_tex) // Color data
             );
-            std::cout << albedo << " = " << load_index << "\n";
+            //std::cout << albedo << " = " << load_index << "\n";
             glTexSubImage3D(
-                    GL_TEXTURE_2D_ARRAY,
-                    0, // Mipmap number
-                    0, 0, load_index+1, // x/y/z offsets
-                    TEX_SIZE, TEX_SIZE, 1, // width, height, depth
-                    GL_RGB, // format
-                    GL_UNSIGNED_BYTE, // type
-                    std::get<0>(normal_tex) // Color data
+                GL_TEXTURE_2D_ARRAY,
+                0, // Mipmap number
+                0, 0, load_index+1, // x/y/z offsets
+				config::game_config.texture_size, config::game_config.texture_size, 1, // width, height, depth
+                GL_RGB, // format
+                GL_UNSIGNED_BYTE, // type
+                std::get<0>(normal_tex) // Color data
             );
-            std::cout << normal << " = " << load_index+1 << "\n";
+            //std::cout << normal << " = " << load_index+1 << "\n";
 
             // We need to combine occlusion, metal and rough into one texture
             std::vector<uint8_t> texbytes;
-            constexpr int num_bytes = TEX_SIZE * TEX_SIZE * 3;
+            const int num_bytes = config::game_config.texture_size * config::game_config.texture_size * 3;
             texbytes.resize(num_bytes);
             for (int i=0; i<num_bytes; i+=3) {
                 texbytes[i] = std::get<0>(occlusion_tex)[i];
@@ -191,15 +194,15 @@ namespace splash_screen {
                 texbytes[i+2] = std::get<0>(rough_tex)[i];
             }
             glTexSubImage3D(
-                    GL_TEXTURE_2D_ARRAY,
-                    0, // Mipmap number
-                    0, 0, load_index+2, // x/y/z offsets
-                    TEX_SIZE, TEX_SIZE, 1, // width, height, depth
-                    GL_RGB, // format
-                    GL_UNSIGNED_BYTE, // type
-                    &texbytes[0] // Color data
+                GL_TEXTURE_2D_ARRAY,
+                0, // Mipmap number
+                0, 0, load_index+2, // x/y/z offsets
+				config::game_config.texture_size, config::game_config.texture_size, 1, // width, height, depth
+                GL_RGB, // format
+                GL_UNSIGNED_BYTE, // type
+                &texbytes[0] // Color data
             );
-            std::cout << "Combined = " << load_index+2 << "\n";
+            //std::cout << "Combined = " << load_index+2 << "\n";
 
             stbi_image_free(std::get<0>(albedo_tex));
             stbi_image_free(std::get<0>(normal_tex));
@@ -221,8 +224,8 @@ namespace splash_screen {
         std::vector<std::string> cursor_textures{ "base_cursor.png", "chop_cursor.png", "tree_cursor.png", "farm_cursor.png", "guard_cursor.png",
                                                   "dig_cursor.png", "channel_cursor.png", "ramp_cursor.png", "downstairs_cursor.png", "upstairs_cursor.png", "updownstairs_cursor.png",
                                                   "wall_cursor.png", "floor_cursor.png", "bridge_cursor.png"};
-        const int num_actual_textures = static_cast<int>(cursor_textures.size());
-        std::cout << "# CursorTextures in array: " << num_actual_textures << "\n";
+        const auto num_actual_textures = static_cast<int>(cursor_textures.size());
+        //std::cout << "# CursorTextures in array: " << num_actual_textures << "\n";
 
         glGenTextures(1, &assets::cursor_texture_array);
         glActiveTexture(GL_TEXTURE0);
@@ -235,10 +238,10 @@ namespace splash_screen {
                        num_actual_textures
         );
 
-        int load_index = 0;
+        auto load_index = 0;
         for (std::size_t i = 0; i<cursor_textures.size(); ++i) {
-            const std::string stem = cursor_textures[i];
-            const std::string albedo = "game_assets/cursors/" + stem;
+            const auto stem = cursor_textures[i];
+            const auto albedo = "game_assets/cursors/" + stem;
 
             auto albedo_tex = load_cursor_texture_to_ram(albedo);
 
@@ -252,7 +255,7 @@ namespace splash_screen {
                     GL_UNSIGNED_BYTE, // type
                     std::get<0>(albedo_tex) // Color data
             );
-            std::cout << albedo << " = " << load_index << "\n";
+            //std::cout << albedo << " = " << load_index << "\n";
 
             stbi_image_free(std::get<0>(albedo_tex));
 
@@ -271,9 +274,10 @@ namespace splash_screen {
         for (const auto &vm : voxel_models_to_load) {
             vox::load_vox(vm.second, vm.first);
         }
+		vox::build_master_geometry();
     }
 
-    void tick(const double &duration_ms) {
+    void tick(const double &duration_ms) noexcept {
         run_time += duration_ms;
         if (run_time > 0.1 && run_time < 500.0f) {
             scale = std::min(0.5f, scale + 0.01f);
@@ -326,11 +330,11 @@ namespace splash_screen {
 
         if (!initialized_thread_pool) {
             initialized_thread_pool = true;
-            init_thread_pool();
         } else {
             if (!initialized_raws && !raw_load_started) {
                 raw_load_started.store(true);
-                thread_pool->push(std::ref(init_raws));
+				std::thread loader_thread(std::ref(init_raws));
+				loader_thread.detach();
             }
         }
 

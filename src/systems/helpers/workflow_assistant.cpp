@@ -1,32 +1,32 @@
+#include "stdafx.h"
 #include "workflow_assistant.hpp"
 #include "../../raws/reactions.hpp"
 #include "../../raws/defs/reaction_t.hpp"
 #include "inventory_assistant.hpp"
-#include "../../components/buildings/building.hpp"
 #include "../ai/workflow_system.hpp"
 #include "../../global_assets/building_designations.hpp"
 
 namespace workflow {
 	std::unordered_map<std::size_t, std::vector<std::string>> automatic_reactions;
-	std::unordered_set<std::size_t> workshop_claimed;
 
 	using namespace bengine;
 
-	bool is_auto_reaction_task_available(const settler_ai_t &ai) {
+	bool is_auto_reaction_task_available(const int worker_id, const settler_ai_t &ai) noexcept {
 		if (automatic_reactions.empty()) return false;
 
-		for (auto outerit = automatic_reactions.begin(); outerit != automatic_reactions.end(); ++outerit) {
+		for (const auto &outerit : automatic_reactions) {
 			// Is the workshop busy?
-			auto busy_finder = workshop_claimed.find(outerit->first);
-			if (busy_finder == workshop_claimed.end()) {
+			const auto workshop_entity = entity(outerit.first);
+			if (workshop_entity)
+			{
 				// Iterate available automatic reactions
-				for (const std::string &reaction_name : outerit->second) {
+				for (const auto &reaction_name : outerit.second) {
 					auto reaction = get_reaction_def(reaction_name);
 					if (reaction != nullptr) {
 						// Are the inputs available?
-						bool available = true;
+						auto available = true;
 						for (auto &input : reaction->inputs) {
-							const int n_available = inventory::available_items_by_reaction_input(input);
+							const auto n_available = inventory::available_items_by_reaction_input(worker_id, input);
 							if (n_available < input.quantity) {
 								available = false;
 							};
@@ -44,43 +44,43 @@ namespace workflow {
 		return false;
 	}
 
-	std::unique_ptr<reaction_task_t> find_automatic_reaction_task(const ai_tag_work_order &ai) {
+	std::unique_ptr<reaction_task_t> find_automatic_reaction_task(const int worker_id, const ai_tag_work_order &ai) noexcept {
 		if (automatic_reactions.empty()) return std::unique_ptr<reaction_task_t>{};
 
 		std::unique_ptr<reaction_task_t> result;
 
 		// Iterate through available reactions
-		for (auto outerit = automatic_reactions.begin(); outerit != automatic_reactions.end(); ++outerit) {
+		for (const auto &outerit : automatic_reactions) {
 			// Is the workshop busy?
-			auto busy_finder = workshop_claimed.find(outerit->first);
-			if (busy_finder == workshop_claimed.end()) {
+			const auto workshop_entity = entity(outerit.first);
+			if (workshop_entity)
+			{
 				// Iterate available automatic reactions
-				for (const std::string &reaction_name : outerit->second) {
-					auto reaction = get_reaction_def(reaction_name);
+				for (const auto &reaction_name : outerit.second) {
+					const auto reaction = get_reaction_def(reaction_name);
 					if (reaction != nullptr) {
 						// Are the inputs available?
-						bool available = true;
-						std::vector<std::pair<std::size_t, bool>> components;
+						auto available = true;
+						std::vector<std::pair<int, bool>> components;
 						for (auto &input : reaction->inputs) {
-							const int n_available = inventory::available_items_by_reaction_input(input);
+							const auto n_available = inventory::available_items_by_reaction_input(worker_id, input);
 							if (n_available < input.quantity) {
 								available = false;
 							}
 							else {
 								// Claim an item and push its # to the list
-								std::size_t item_id = inventory::claim_item_by_reaction_input(input);
-								components.push_back(std::make_pair(item_id, false));
+								const auto item_id = inventory::claim_item_by_reaction_input(input, worker_id);
+								components.emplace_back(std::make_pair(item_id, false));
 							}
 						}
 
 						if (available) {
 							// Components are available, build job and return it
-							result = std::make_unique<reaction_task_t>(outerit->first, reaction->name, reaction->tag, components);
-							workshop_claimed.insert(outerit->first);
+							result = std::make_unique<reaction_task_t>(outerit.first, reaction->name, reaction->tag, components);
 							return result;
 						}
 						else {
-							for (auto comp : components) {
+							for (const auto comp : components) {
 								inventory::unclaim_by_id(comp.first);
 							}
 						}
@@ -92,31 +92,28 @@ namespace workflow {
 		return result;
 	}
 
-	std::unique_ptr<reaction_task_t> find_queued_reaction_task(const ai_tag_work_order &ai) {
+	std::unique_ptr<reaction_task_t> find_queued_reaction_task(const int worker_id, const ai_tag_work_order &ai) noexcept {
 		if (building_designations->build_orders.empty()) return std::unique_ptr<reaction_task_t>();
 
 		std::unique_ptr<reaction_task_t> result;
 
 		// Iterate through queued jobs
-		for (std::pair<uint8_t, std::string> &order : building_designations->build_orders) {
+		for (auto &order : building_designations->build_orders) {
 			auto reaction = get_reaction_def(order.second);
 
 			// Is there an available workshop of the right type?
-			bool possible = false;
+			auto possible = false;
 			std::size_t workshop_id;
 			each<building_t>([&possible, &reaction, &workshop_id](entity_t &e, building_t &b) {
 				if (b.complete && b.tag == reaction->workshop) {
-					auto busy_finder = workshop_claimed.find(e.id);
-					if (busy_finder == workshop_claimed.end()) {
-						workshop_id = e.id;
-						possible = true;
-					}
+					workshop_id = e.id;
+					possible = true;
 				}
 			});
 			if (!possible) break;
 
 			// Is the settler allowed to do this?
-			int target_category = -1;
+			auto target_category = -1;
 			if (reaction->skill == "Carpentry") {
 				target_category = JOB_CARPENTRY;
 			}
@@ -124,30 +121,29 @@ namespace workflow {
 				target_category = JOB_MASONRY;
 			}
 			if (target_category > -2) {
-				bool available = true;
-				std::vector<std::pair<std::size_t, bool>> components;
+				auto available = true;
+				std::vector<std::pair<int, bool>> components;
 				for (auto &input : reaction->inputs) {
-					const int n_available = inventory::available_items_by_reaction_input(input);
+					const auto n_available = inventory::available_items_by_reaction_input(worker_id, input);
 					if (n_available < input.quantity) {
 						available = false;
 					}
 					else {
 						// Claim an item and push its # to the list
-						std::size_t item_id = inventory::claim_item_by_reaction_input(input);
-						components.push_back(std::make_pair(item_id, false));
+						auto item_id = inventory::claim_item_by_reaction_input(input, worker_id);
+						components.emplace_back(std::make_pair(item_id, false));
 					}
 				}
 
 				if (available) {
 					// Components are available, build job and return it
 					result = std::make_unique<reaction_task_t>(workshop_id, reaction->name, reaction->tag, components);
-					workshop_claimed.insert(workshop_id);
 					--order.first;
 					systems::workflow_system::update_workflow();
 					return result;
 				}
 				else {
-					for (auto comp : components) {
+					for (const auto &comp : components) {
 						inventory::unclaim_by_id(comp.first);
 					}
 				}
@@ -157,8 +153,8 @@ namespace workflow {
 		return result;
 	}
 
-	void free_workshop(const std::size_t &id) {
-		workshop_claimed.erase(id);
+	void free_workshop(const std::size_t &id) noexcept {
+		delete_component<claimed_t>(id);
 	}
 
 }
